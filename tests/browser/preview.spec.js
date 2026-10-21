@@ -216,15 +216,24 @@ test("works under a GitHub Pages project subdirectory", async ({ page }) => {
   ).toHaveText("Private demo");
   await expect(page.locator("#empty-state")).toBeHidden();
   const headerBox = await page.locator(".header").boundingBox();
-  expect(headerBox.height).toBeLessThan(80);
+  expect(headerBox.height).toBeLessThan(60);
+  await expect(page.locator(".header")).toHaveCSS(
+    "background-color",
+    "rgb(255, 255, 255)",
+  );
+  await expect(page.locator("#github-link")).toBeVisible();
+  await expect(page.locator("#github-link")).toHaveText(
+    /View source on GitHub/,
+  );
+  await expect(page.locator(".viewer-footer")).toHaveCount(0);
   expect((await page.locator("#source").boundingBox()).width).toBeGreaterThan(
     300,
   );
   expect(
     await page.locator('link[rel="stylesheet"]').getAttribute("href"),
-  ).toBe("./style.css?v=3");
+  ).toBe("./style.css?v=4");
   expect(await page.locator('script[type="module"]').getAttribute("src")).toBe(
-    "./app.js?v=3",
+    "./app.js?v=4",
   );
   const dimensions = await page
     .locator("#frame-host iframe")

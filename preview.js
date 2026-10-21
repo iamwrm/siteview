@@ -1,5 +1,5 @@
-import { init, parse } from "./vendor/lexer.js?v=3";
-import { virtualURL, localPath, applyEdits } from "./core.js?v=3";
+import { init, parse } from "./vendor/lexer.js?v=4";
+import { virtualURL, localPath, applyEdits } from "./core.js?v=4";
 
 const text = (file) => new TextDecoder().decode(file.bytes);
 const escapeAttribute = (value) =>

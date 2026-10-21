@@ -7,14 +7,12 @@
     <meta name="description" content="Preview a GitHub file as a web page." />
     <title>Siteview</title>
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="./style.css?v=3" />
-    <script type="module" src="./app.js?v=3"></script>
+    <link rel="stylesheet" href="./style.css?v=4" />
+    <script type="module" src="./app.js?v=4"></script>
   </head>
   <body>
     <header class="header">
-      <a class="brand" href="./" aria-label="Siteview home"
-        >siteview<span>.</span></a
-      >
+      <a class="brand" href="./" aria-label="Siteview home">siteview</a>
       <form id="preview-form">
         <div class="url-row">
           <label for="source" class="sr-only">GitHub file URL</label>
@@ -48,7 +46,8 @@
                   placeholder="github_pat_…"
                   autocomplete="off"
                   spellcheck="false"
-                /><button id="clear-token" type="button">Clear</button>
+                />
+                <button id="clear-token" type="button">Clear</button>
               </div>
               <p>
                 Use a
@@ -70,11 +69,10 @@
                 autocomplete="off"
                 spellcheck="false"
               />
-              <label class="consent"
-                ><input id="trust" type="checkbox" /><span
-                  >I trust this repo's scripts and external requests.</span
-                ></label
-              >
+              <label class="consent">
+                <input id="trust" type="checkbox" />
+                <span>I trust this repo's scripts and external requests.</span>
+              </label>
               <p id="security">
                 Scripts run in a sandbox without access to Siteview's token or
                 storage. They can read files at the selected commit and send
@@ -89,6 +87,15 @@
           </details>
         </div>
       </form>
+      <a
+        id="github-link"
+        class="source-link"
+        target="_blank"
+        rel="noreferrer"
+        hidden
+        ><span class="source-full">View source on GitHub</span
+        ><span class="source-compact">Source</span> ↗</a
+      >
     </header>
     <div
       id="status"
@@ -107,8 +114,7 @@
       <section id="viewer" class="viewer" hidden aria-label="File preview">
         <div class="viewer-toolbar">
           <div class="viewer-file">
-            <span class="live-dot"></span><span id="filename"></span
-            ><code id="commit"></code>
+            <span id="filename"></span><code id="commit"></code>
           </div>
           <div class="viewer-actions">
             <details id="results" class="menu" hidden>
@@ -116,7 +122,8 @@
               <div class="share-content">
                 <label for="dev-url">Development link</label>
                 <div class="copy-row">
-                  <input id="dev-url" readonly /><button
+                  <input id="dev-url" readonly />
+                  <button
                     type="button"
                     data-copy="dev-url"
                     aria-label="Copy development link"
@@ -126,7 +133,8 @@
                 </div>
                 <label for="pinned-url">Commit-pinned link</label>
                 <div class="copy-row">
-                  <input id="pinned-url" readonly /><button
+                  <input id="pinned-url" readonly />
+                  <button
                     type="button"
                     data-copy="pinned-url"
                     aria-label="Copy commit-pinned link"
@@ -149,12 +157,6 @@
         </div>
         <div id="frame-host"></div>
         <div id="warnings" class="warnings" hidden></div>
-        <div class="viewer-footer">
-          <span>ISOLATED PREVIEW</span
-          ><a id="github-link" target="_blank" rel="noreferrer"
-            >View source on GitHub ↗</a
-          >
-        </div>
       </section>
     </main>
   </body>

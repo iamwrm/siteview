@@ -1,4 +1,4 @@
-import { chooseRef, mime } from "./core.js?v=3";
+import { chooseRef, mime } from "./core.js?v=4";
 
 const API = "https://api.github.com";
 const MAX_FILE = 8 * 1024 * 1024;

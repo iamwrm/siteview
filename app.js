@@ -1,6 +1,6 @@
-import { parseGitHubURL, sourceURL, shareURL } from "./core.js?v=3";
-import { GitHub } from "./github.js?v=3";
-import { Preview } from "./preview.js?v=3";
+import { parseGitHubURL, sourceURL, shareURL } from "./core.js?v=4";
+import { GitHub } from "./github.js?v=4";
+import { Preview } from "./preview.js?v=4";
 
 const $ = (id) => document.getElementById(id);
 let session;
@@ -39,6 +39,7 @@ function close() {
   session = null;
   $("viewer").hidden = true;
   $("empty-state").hidden = false;
+  $("github-link").hidden = true;
   $("results").hidden = true;
   $("results").open = false;
   $("viewer").classList.remove("expanded");
@@ -50,6 +51,7 @@ function updateLinks(target) {
   $("dev-url").value = shareURL(location.href, target);
   $("pinned-url").value = shareURL(location.href, target, target.sha);
   $("github-link").href = sourceURL(target);
+  $("github-link").hidden = false;
   $("filename").textContent = target.path;
   $("commit").textContent = target.sha.slice(0, 7);
   $("results").hidden = false;
@@ -152,6 +154,7 @@ async function render(path) {
     preview.dispose();
     $("viewer").hidden = true;
     $("empty-state").hidden = false;
+    $("github-link").hidden = true;
     status(
       error.name === "AbortError" ? "Loading canceled." : error.message,
       error.name !== "AbortError",
