@@ -1,5 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   parseGitHubURL,
   chooseRef,
@@ -11,6 +14,24 @@ import {
   applyEdits,
 } from "../core.js";
 import { GitHub } from "../github.js";
+
+test("all runtime assets use one cache-busting version", async () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const names = ["index.html", "app.js", "preview.js", "github.js"];
+  const sources = await Promise.all(
+    names.map((name) => readFile(join(root, name), "utf8")),
+  );
+  const versions = new Set(
+    sources.flatMap((source) =>
+      [...source.matchAll(/[?&]v=(\d+)/g)].map((match) => match[1]),
+    ),
+  );
+  assert.equal(versions.size, 1, "asset version queries must match");
+  assert.ok([...versions][0]);
+  assert.match(sources[0], /style\.css\?v=\d+/);
+  assert.match(sources[0], /app\.js\?v=\d+/);
+  for (const source of sources.slice(1)) assert.match(source, /\?v=\d+/);
+});
 
 test("GitHub blob and raw URLs normalize to the same target", () => {
   const expected = {

@@ -4,14 +4,11 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="referrer" content="no-referrer" />
-    <meta
-      name="description"
-      content="A minimal GitHub file viewer with optional private repository access."
-    />
+    <meta name="description" content="Preview a GitHub file as a web page." />
     <title>Siteview</title>
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="./style.css" />
-    <script type="module" src="./app.js"></script>
+    <link rel="stylesheet" href="./style.css?v=3" />
+    <script type="module" src="./app.js?v=3"></script>
   </head>
   <body>
     <header class="header">
@@ -24,7 +21,7 @@
           <input
             id="source"
             type="url"
-            placeholder="GitHub file URL"
+            placeholder="https://github.com/owner/repo/blob/main/index.html"
             autocomplete="off"
             spellcheck="false"
             required
@@ -32,12 +29,18 @@
           <button class="primary" id="preview-button" type="submit">
             Preview ↗
           </button>
-        </div>
-        <div class="header-tools">
-          <details id="options">
-            <summary>Access & options</summary>
+          <button id="cancel" type="button" class="cancel" hidden>
+            Cancel
+          </button>
+          <details id="options" class="menu">
+            <summary title="Private repository token and preview settings">
+              Token
+            </summary>
             <div class="options-content">
-              <label for="token">GitHub personal access token</label>
+              <label for="token"
+                >GitHub personal access token
+                <span>for private repos</span></label
+              >
               <div class="token-row">
                 <input
                   id="token"
@@ -48,7 +51,7 @@
                 /><button id="clear-token" type="button">Clear</button>
               </div>
               <p>
-                For private repos, use a
+                Use a
                 <a
                   href="https://github.com/settings/personal-access-tokens/new"
                   target="_blank"
@@ -67,11 +70,15 @@
                 autocomplete="off"
                 spellcheck="false"
               />
+              <label class="consent"
+                ><input id="trust" type="checkbox" /><span
+                  >I trust this repo's scripts and external requests.</span
+                ></label
+              >
               <p id="security">
-                Only preview trusted code. Scripts cannot access Siteview's
-                token or storage, but can read files at the selected commit and
-                send them to external services. Forms, popups and top navigation
-                are blocked.
+                Scripts run in a sandbox without access to Siteview's token or
+                storage. They can read files at the selected commit and send
+                them to external services. Only preview code you trust.
               </p>
               <p>
                 Prebuilt static sites only. Relative assets and ES modules work.
@@ -80,49 +87,22 @@
               </p>
             </div>
           </details>
-          <label class="consent"
-            ><input id="trust" type="checkbox" required /><span
-              >I trust this repo's scripts and external requests.</span
-            ></label
-          >
-          <details id="results" hidden>
-            <summary>Share</summary>
-            <div class="share-content">
-              <label for="dev-url">Development link</label>
-              <div class="copy-row">
-                <input id="dev-url" readonly /><button
-                  type="button"
-                  data-copy="dev-url"
-                  aria-label="Copy development link"
-                >
-                  Copy ↗
-                </button>
-              </div>
-              <label for="pinned-url">Commit-pinned link</label>
-              <div class="copy-row">
-                <input id="pinned-url" readonly /><button
-                  type="button"
-                  data-copy="pinned-url"
-                  aria-label="Copy commit-pinned link"
-                >
-                  Copy ↗
-                </button>
-              </div>
-              <p>
-                Private repo viewers need their own token. Links include the
-                repo and path, never your token.
-              </p>
-            </div>
-          </details>
-          <div id="status" role="status" aria-live="polite" hidden></div>
-          <button id="cancel" type="button" hidden>Cancel</button>
         </div>
       </form>
     </header>
+    <div
+      id="status"
+      class="status"
+      role="status"
+      aria-live="polite"
+      hidden
+    ></div>
     <main>
       <div id="empty-state">
-        <h1>Open a GitHub file</h1>
-        <p>Paste its URL above. Add a token for a private repo.</p>
+        <p>
+          Paste a GitHub file URL above to preview it.<br />Public repos work
+          as-is. For a private repo, open <strong>Token</strong>.
+        </p>
       </div>
       <section id="viewer" class="viewer" hidden aria-label="File preview">
         <div class="viewer-toolbar">
@@ -131,13 +111,38 @@
             ><code id="commit"></code>
           </div>
           <div class="viewer-actions">
-            <button id="reload" type="button">Reload</button
-            ><button id="expand" type="button">Expand</button
-            ><button
-              id="close-preview"
-              type="button"
-              aria-label="Close preview"
-            >
+            <details id="results" class="menu" hidden>
+              <summary>Share</summary>
+              <div class="share-content">
+                <label for="dev-url">Development link</label>
+                <div class="copy-row">
+                  <input id="dev-url" readonly /><button
+                    type="button"
+                    data-copy="dev-url"
+                    aria-label="Copy development link"
+                  >
+                    Copy ↗
+                  </button>
+                </div>
+                <label for="pinned-url">Commit-pinned link</label>
+                <div class="copy-row">
+                  <input id="pinned-url" readonly /><button
+                    type="button"
+                    data-copy="pinned-url"
+                    aria-label="Copy commit-pinned link"
+                  >
+                    Copy ↗
+                  </button>
+                </div>
+                <p>
+                  Private repo viewers need their own token. Links include the
+                  repo and path, never your token.
+                </p>
+              </div>
+            </details>
+            <button id="reload" type="button">Reload</button>
+            <button id="expand" type="button">Expand</button>
+            <button id="close-preview" type="button" aria-label="Close preview">
               ✕
             </button>
           </div>

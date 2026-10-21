@@ -24,8 +24,8 @@ Alternatively publish the repository root directly using Pages' “Deploy from a
 ## Use
 
 - Paste a github.com/owner/repo/blob/ref/path or raw.githubusercontent.com/owner/repo/ref/path URL.
-- For private repositories, open the options panel and enter your own PAT.
-- Review the trust notice, check the box, and click Preview file.
+- For private repositories, open **Token** in the header and enter your own PAT.
+- In the same panel, check the trust box, then click **Preview**.
 - Copy a development link to follow the branch or a commit-pinned link to keep the same revision. Recipients must opt in before any repository code runs. Private links require the recipient's own GitHub access.
 - Reload resolves the branch again. Internal page navigation stays at the initially selected commit.
 
@@ -78,3 +78,5 @@ npm run test:browser
 Browser tests use intercepted GitHub API fixtures. They cover private/public requests, token isolation, CSS and module loading, fetch bridging, page navigation, branch resolution, share links, mobile layout and API failures. No real PAT or private repository is used. Live GitHub credentials and organization policies must be verified with your own account.
 
 The only vendored runtime dependency is es-module-lexer 2.0.0, MIT, in vendor/. Its license is included. To update it deliberately, update the dev dependency and lockfile, copy node_modules/es-module-lexer/dist/lexer.js and LICENSE into vendor/, then rerun the tests.
+
+GitHub Pages serves assets with `Cache-Control: max-age=600`. All runtime asset URLs therefore carry a shared version query (`?v=N`) in `index.html` and the module imports. Bump that number whenever app files change, otherwise a cached old script or stylesheet can load against new HTML. A unit test enforces that every version query matches.

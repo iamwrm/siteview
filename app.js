@@ -1,6 +1,6 @@
-import { parseGitHubURL, sourceURL, shareURL } from "./core.js";
-import { GitHub } from "./github.js";
-import { Preview } from "./preview.js";
+import { parseGitHubURL, sourceURL, shareURL } from "./core.js?v=3";
+import { GitHub } from "./github.js?v=3";
+import { Preview } from "./preview.js?v=3";
 
 const $ = (id) => document.getElementById(id);
 let session;
@@ -39,10 +39,10 @@ function close() {
   session = null;
   $("viewer").hidden = true;
   $("empty-state").hidden = false;
+  $("results").hidden = true;
   $("results").open = false;
   $("viewer").classList.remove("expanded");
   $("expand").textContent = "Expand";
-  $("results").hidden = true;
   busy(false);
 }
 
@@ -56,15 +56,13 @@ function updateLinks(target) {
   history.replaceState(null, "", shareURL(location.href, target));
 }
 
-async function render(path, hash = "") {
+async function render(path) {
   const active = session;
   const id = ++generation;
   busy(true);
   disconnect();
   active.preview?.dispose();
-  const preview = new Preview(active.github, (file) => {
-    if (generation === id) status(`Reading ${file}`);
-  });
+  const preview = new Preview(active.github);
   active.preview = preview;
   try {
     const html = await preview.build(path);
@@ -104,7 +102,7 @@ async function render(path, hash = "") {
           const next = data.path.endsWith("/")
             ? data.path + "index.html"
             : data.path;
-          await render(next, typeof data.hash === "string" ? data.hash : "");
+          await render(next);
           return;
         }
         if (data.kind !== "fetch" || !Number.isSafeInteger(data.id)) return;
@@ -148,13 +146,7 @@ async function render(path, hash = "") {
     $("options").open = false;
     $("warnings").textContent = [...preview.warnings].join(" ");
     $("warnings").hidden = !preview.warnings.size;
-    status(
-      `Ready. ${active.github.files.size} file${active.github.files.size === 1 ? "" : "s"} read at commit ${active.target.sha.slice(0, 7)}.`,
-    );
-    if (hash)
-      status(
-        `Ready. Opened ${path}. In-page anchors across pages are not restored in sandboxed previews.`,
-      );
+    status("");
   } catch (error) {
     if (session !== active || id !== generation) return;
     preview.dispose();
@@ -176,6 +168,14 @@ $("preview-form").addEventListener("submit", async (event) => {
     input = parseGitHubURL($("source").value, $("ref").value);
   } catch (error) {
     status(error.message, true);
+    return;
+  }
+  if (!$("trust").checked) {
+    $("options").open = true;
+    status(
+      "Check “I trust this repo's scripts” under Token before previewing.",
+      true,
+    );
     return;
   }
   close();
@@ -203,14 +203,16 @@ $("cancel").addEventListener("click", () => {
   close();
   status("Loading canceled.");
 });
-$("close-preview").addEventListener("click", () => {
-  close();
-  status("Preview closed.");
+$("trust").addEventListener("change", () => {
+  if (!$("trust").checked) return;
+  $("options").open = false;
+  status("");
 });
 $("clear-token").addEventListener("click", () => {
   close();
   $("token").value = "";
-  status("Token cleared and preview closed.");
+  $("options").open = true;
+  status("Token cleared.");
 });
 $("reload").addEventListener("click", () => {
   if (session?.target) {
@@ -219,17 +221,17 @@ $("reload").addEventListener("click", () => {
   }
   $("preview-form").requestSubmit();
 });
+$("close-preview").addEventListener("click", () => close());
 $("expand").addEventListener("click", () => {
   const expanded = $("viewer").classList.toggle("expanded");
   $("expand").textContent = expanded ? "Collapse" : "Expand";
 });
 window.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") {
-    $("options").open = false;
-    $("results").open = false;
-    $("viewer").classList.remove("expanded");
-    $("expand").textContent = "Expand";
-  }
+  if (event.key !== "Escape") return;
+  $("options").open = false;
+  $("results").open = false;
+  $("viewer").classList.remove("expanded");
+  $("expand").textContent = "Expand";
 });
 for (const [id, other] of [
   ["options", "results"],
@@ -251,7 +253,6 @@ for (const button of document.querySelectorAll("[data-copy]"))
     } catch {
       field.focus();
       field.select();
-      status("Select the link and copy it with your keyboard.");
     }
   });
 
@@ -262,7 +263,7 @@ function readLink() {
   $("ref").value = params.get("ref") || "";
   // A shared link never executes repository code until the viewer opts in.
   status(
-    "Link loaded. Review the repository, add a token if needed, then check the trust box to preview.",
+    "Link loaded. Add a private repo token under Token if needed, confirm trust, then preview.",
   );
 }
 // Do not restore credentials or consent from browser form-state restoration.
@@ -270,14 +271,10 @@ $("token").value = "";
 $("trust").checked = false;
 readLink();
 window.addEventListener("hashchange", () => {
-  if (location.hash.startsWith("#url=")) {
-    close();
-    $("trust").checked = false;
-    readLink();
-  } else {
-    const section = document.getElementById(location.hash.slice(1));
-    if (section?.tagName === "DETAILS") section.open = true;
-  }
+  if (!location.hash.startsWith("#url=")) return;
+  close();
+  $("trust").checked = false;
+  readLink();
 });
 window.addEventListener("pagehide", () => {
   close();

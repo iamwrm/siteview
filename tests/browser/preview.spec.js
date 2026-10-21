@@ -52,15 +52,18 @@ async function mockGitHub(page, options = {}) {
   return requests;
 }
 
+async function openAccess(page) {
+  await page.locator("#options summary").click();
+  await expect(page.locator("#token")).toBeVisible();
+}
+
 async function start(page, token = "") {
   await page.goto("/");
   await page
     .locator("#source")
     .fill("https://github.com/alice/private/blob/main/site/index.html");
-  if (token) {
-    await page.locator("#options summary").click();
-    await page.locator("#token").fill(token);
-  }
+  await openAccess(page);
+  if (token) await page.locator("#token").fill(token);
   await page.locator("#trust").check();
   await page.locator("#preview-button").click();
 }
@@ -141,6 +144,7 @@ test("private preview rewrites CSS, images, ES modules, dynamic imports and fetc
   await page.locator("#clear-token").click();
   await expect(page.locator("#token")).toHaveValue("");
   await expect(page.locator("#viewer")).toBeHidden();
+  await expect(page.locator("#status")).toHaveText("Token cleared.");
 });
 
 test("public preview omits Authorization and share links require opt-in", async ({
@@ -179,6 +183,7 @@ test("slash branches resolve to longest matching branch", async ({ page }) => {
   await page
     .locator("#source")
     .fill("https://github.com/alice/private/blob/feature/demo/site/index.html");
+  await openAccess(page);
   await page.locator("#trust").check();
   await page.locator("#preview-button").click();
   await expect(page.locator("#viewer")).toBeVisible();
@@ -199,6 +204,7 @@ test("works under a GitHub Pages project subdirectory", async ({ page }) => {
   await page
     .locator("#source")
     .fill("https://github.com/alice/private/blob/main/site/index.html");
+  await openAccess(page);
   await page.locator("#trust").check();
   await page.locator("#preview-button").click();
   await expect(page.locator("#viewer")).toBeVisible();
@@ -209,6 +215,17 @@ test("works under a GitHub Pages project subdirectory", async ({ page }) => {
     page.frameLocator("#frame-host iframe").locator("h1"),
   ).toHaveText("Private demo");
   await expect(page.locator("#empty-state")).toBeHidden();
+  const headerBox = await page.locator(".header").boundingBox();
+  expect(headerBox.height).toBeLessThan(80);
+  expect((await page.locator("#source").boundingBox()).width).toBeGreaterThan(
+    300,
+  );
+  expect(
+    await page.locator('link[rel="stylesheet"]').getAttribute("href"),
+  ).toBe("./style.css?v=3");
+  expect(await page.locator('script[type="module"]').getAttribute("src")).toBe(
+    "./app.js?v=3",
+  );
   const dimensions = await page
     .locator("#frame-host iframe")
     .evaluate((frame) => {
@@ -263,20 +280,22 @@ test("mobile form fits viewport and renders without a build step", async ({
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
     375,
   );
-  await expect(page.locator("h1")).toBeVisible();
+  expect((await page.locator(".header").boundingBox()).height).toBeLessThan(
+    120,
+  );
+  await expect(page.locator("#empty-state")).toBeVisible();
+  await expect(page.locator("#preview-form")).toBeVisible();
   await page.screenshot({ path: "test-results/mobile.png", fullPage: true });
   await mockGitHub(page);
   await start(page);
   await expect(
     page.frameLocator("#frame-host iframe").locator("h1"),
   ).toHaveText("Private demo");
-  const layout = await page
-    .locator("#frame-host iframe")
-    .evaluate((frame) => ({
-      height: frame.clientHeight,
-      viewport: innerHeight,
-      scrollWidth: document.documentElement.scrollWidth,
-    }));
+  const layout = await page.locator("#frame-host iframe").evaluate((frame) => ({
+    height: frame.clientHeight,
+    viewport: innerHeight,
+    scrollWidth: document.documentElement.scrollWidth,
+  }));
   expect(layout.height).toBeGreaterThan(layout.viewport * 0.6);
   expect(layout.scrollWidth).toBe(375);
   await page.screenshot({
