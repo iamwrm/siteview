@@ -98,6 +98,8 @@ const types = {
   js: "text/javascript",
   mjs: "text/javascript",
   json: "application/json",
+  md: "text/markdown",
+  markdown: "text/markdown",
   svg: "image/svg+xml",
   png: "image/png",
   jpg: "image/jpeg",

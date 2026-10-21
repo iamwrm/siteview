@@ -16,6 +16,31 @@ const files = {
   "site/dynamic.js": `export const message='dynamic works';`,
   "site/data.json": '{"message":"fetch works"}',
   "site/next.html": '<h1>Second page</h1><a href="./index.html">Back</a>',
+  "docs/README.md": [
+    "# Project docs",
+    "",
+    "Intro with **bold** and `code`.",
+    "",
+    "![logo](./logo.svg)",
+    "",
+    "```js",
+    "const answer = 42;",
+    "```",
+    "",
+    "| name | value |",
+    "| --- | ---: |",
+    "| one | 1 |",
+    "",
+    "- [x] shipped",
+    "- [ ] pending",
+    "",
+    "Read [the guide](./guide.md).",
+    "",
+    "<script>document.body.dataset.pwned = 'md'</script>",
+  ].join("\n"),
+  "docs/logo.svg":
+    '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12"><circle cx="6" cy="6" r="6" fill="green"/></svg>',
+  "docs/guide.md": "# Guide\n\nBack to [README](./README.md).",
 };
 
 async function mockGitHub(page, options = {}) {
@@ -278,9 +303,9 @@ test("works under a GitHub Pages project subdirectory", async ({ page }) => {
   );
   expect(
     await page.locator('link[rel="stylesheet"]').getAttribute("href"),
-  ).toBe("./style.css?v=9");
+  ).toBe("./style.css?v=10");
   expect(await page.locator('script[type="module"]').getAttribute("src")).toBe(
-    "./app.js?v=9",
+    "./app.js?v=10",
   );
   const dimensions = await page
     .locator("#frame-host iframe")
@@ -337,6 +362,80 @@ test("clears a URL restored by browser form state", async ({ page }) => {
   });
   await page.goto("/");
   await expect(page.locator("#source")).toHaveValue("");
+});
+
+test("markdown renders as a page with relative images, links, and escaped HTML", async ({
+  page,
+}) => {
+  const errors = [];
+  page.on("console", (msg) => {
+    if (msg.type() === "error") errors.push(msg.text());
+  });
+  await mockGitHub(page);
+  await page.goto("/");
+  await page
+    .locator("#source")
+    .fill("https://github.com/alice/private/blob/main/docs/README.md");
+  await openAccess(page);
+  await page.locator("#trust").check();
+  await page.locator("#preview-button").click();
+  const frame = page.frameLocator("#frame-host iframe");
+  await expect(frame.locator("h1")).toHaveText("Project docs");
+  await expect(frame.locator("strong")).toHaveText("bold");
+  await expect(frame.locator("pre code")).toContainText("const answer = 42;");
+  await expect(frame.locator("table th").first()).toHaveText("name");
+  await expect(frame.locator('input[type="checkbox"]').first()).toBeChecked();
+  expect(
+    await frame
+      .locator("img")
+      .evaluate((img) => img.complete && img.naturalWidth > 0),
+  ).toBe(true);
+  await expect(frame.locator("body")).not.toHaveAttribute("data-pwned");
+  expect(await frame.locator("article").innerHTML()).toContain(
+    "&lt;script&gt;document.body.dataset.pwned",
+  );
+  await frame.getByText("the guide").click();
+  await expect(
+    page.frameLocator("#frame-host iframe").locator("h1"),
+  ).toHaveText("Guide");
+  await expect(page.locator("#filename")).toHaveText("docs/guide.md");
+  expect(errors).toEqual([]);
+});
+
+test("external markdown links open in a new tab instead of replacing the app", async ({
+  page,
+}) => {
+  await page.route("https://api.github.com/**", async (route) => {
+    const path = decodeURIComponent(new URL(route.request().url()).pathname);
+    if (path.includes("/git/matching-refs/"))
+      return route.fulfill({ json: [{ ref: "refs/heads/main" }] });
+    if (path.includes("/commits/"))
+      return route.fulfill({ json: { sha: SHA } });
+    return route.fulfill({
+      contentType: "text/markdown",
+      body: "# Links\n\n[Example](https://example.com/page)\n",
+    });
+  });
+  await page.route("https://example.com/**", (route) =>
+    route.fulfill({ contentType: "text/html", body: "external" }),
+  );
+  await page.goto("/");
+  await page
+    .locator("#source")
+    .fill("https://github.com/alice/private/blob/main/docs/links.md");
+  await openAccess(page);
+  await page.locator("#trust").check();
+  await page.locator("#preview-button").click();
+  await expect(
+    page.frameLocator("#frame-host iframe").locator("h1"),
+  ).toHaveText("Links");
+  const popupPromise = page.waitForEvent("popup");
+  const before = page.url();
+  await page.frameLocator("#frame-host iframe").getByText("Example").click();
+  const popup = await popupPromise;
+  await popup.waitForLoadState("domcontentloaded");
+  expect(popup.url()).toBe("https://example.com/page");
+  expect(page.url()).toBe(before);
 });
 
 test("mobile form fits viewport and renders without a build step", async ({

@@ -1,6 +1,6 @@
 # Siteview
 
-A browser-only GitHub file viewer inspired by raw.githack. Paste a GitHub HTML file URL, optionally supply a personal access token, and preview the file with its relative CSS, images and JavaScript. No backend, runtime dependencies, build step, analytics, or third-party preview service.
+A browser-only GitHub file viewer inspired by raw.githack. Paste a GitHub URL, optionally supply a personal access token, and preview the file with its relative CSS, images and JavaScript. Markdown files render as formatted pages. No backend, runtime dependencies, build step, analytics, or third-party preview service.
 
 ## Run
 
@@ -43,7 +43,7 @@ Private file bytes and generated data URLs remain in browser memory until the pr
 
 Repository HTML is rendered in an iframe with sandbox="allow-scripts", deliberately **without allow-same-origin**. It cannot read the parent document, PAT, or parent storage. Popups, forms, nested frames and top navigation are blocked. Preview links to other repository pages are handled through a MessageChannel. External page links are blocked rather than opening unsandboxed content on the app origin.
 
-The preview receives no credentials. Its read-only message bridge can fetch files only from the selected repository and resolved commit. It cannot select another repository, branch, API endpoint or HTTP method. Initial files and bridge reads share size/count limits and an in-memory cache. It can read any file at that commit, not only files initially referenced by the HTML.
+The preview receives no credentials. Its read-only message bridge can fetch files only from the selected repository and resolved commit. It cannot select another repository, branch, API endpoint or HTTP method. Clicks on external `http`/`https` links are forwarded to the host page, which opens them in a new tab; previews cannot navigate the app itself. Initial files and bridge reads share size/count limits and an in-memory cache. It can read any file at that commit, not only files initially referenced by the HTML or Markdown.
 
 **Only preview trusted repository code.** Scripts and external resources can make network requests and send repository content to third parties. The sandbox protects Siteview's origin and credentials, not the confidentiality of data the preview can read. A hostile preview can also consume CPU or memory. Siteview is not a malware-analysis environment.
 
@@ -56,6 +56,7 @@ The preview receives no credentials. Its read-only message bridge can fetch file
 - Relative fetch() for read-only repository files. Query strings do not select different Git content.
 - Internal HTML page links. Root-relative paths mean repository root, not the HTML file's directory.
 - Images displayed directly. Other non-HTML files displayed as text.
+- Markdown (`.md`, `.markdown`) rendered with headings, lists, task lists, tables, blockquotes, fenced code, emphasis, autolinks, and images. Relative links navigate inside the preview. Repository HTML inside Markdown is escaped, never executed.
 
 Limits: 200 distinct files per session, 8 MiB per file and 40 MiB total. GitHub API limits apply. Most dependency files consume one API request each, plus requests to resolve the ref. A token typically raises GitHub's hourly allowance from 60 requests to 5,000. Git LFS is rejected.
 
@@ -75,7 +76,7 @@ npx playwright install chromium
 npm run test:browser
 ```
 
-Browser tests use intercepted GitHub API fixtures. They cover private/public requests, token isolation, CSS and module loading, fetch bridging, page navigation, branch resolution, share links, mobile layout and API failures. No real PAT or private repository is used. Live GitHub credentials and organization policies must be verified with your own account.
+Browser tests use intercepted GitHub API fixtures. They cover private/public requests, token isolation, CSS and module loading, Markdown rendering with relative images and links, fetch bridging, page navigation, branch resolution, share links, external links, mobile layout and API failures. No real PAT or private repository is used. Live GitHub credentials and organization policies must be verified with your own account.
 
 The only vendored runtime dependency is es-module-lexer 2.0.0, MIT, in vendor/. Its license is included. To update it deliberately, update the dev dependency and lockfile, copy node_modules/es-module-lexer/dist/lexer.js and LICENSE into vendor/, then rerun the tests.
 

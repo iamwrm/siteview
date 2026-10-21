@@ -1,6 +1,6 @@
-import { parseGitHubURL, sourceURL, shareURL } from "./core.js?v=9";
-import { GitHub } from "./github.js?v=9";
-import { Preview } from "./preview.js?v=9";
+import { parseGitHubURL, sourceURL, shareURL } from "./core.js?v=10";
+import { GitHub } from "./github.js?v=10";
+import { Preview } from "./preview.js?v=10";
 
 const $ = (id) => document.getElementById(id);
 let session;
@@ -103,14 +103,23 @@ async function render(path) {
       bridgePort = channel.port1;
       let pending = 0;
       bridgePort.onmessage = async ({ data }) => {
-        if (
-          !data ||
-          session !== active ||
-          id !== generation ||
-          typeof data.path !== "string" ||
-          data.path.length > 4096
-        )
+        if (!data || session !== active || id !== generation) return;
+        if (data.kind === "open") {
+          if (typeof data.url !== "string" || data.url.length > 2048) return;
+          let url;
+          try {
+            url = new URL(data.url);
+          } catch {
+            return;
+          }
+          if (!["https:", "http:"].includes(url.protocol)) return;
+          const now = Date.now();
+          if (now - (active.lastOpen || 0) < 500) return;
+          active.lastOpen = now;
+          window.open(url.href, "_blank", "noopener,noreferrer");
           return;
+        }
+        if (typeof data.path !== "string" || data.path.length > 4096) return;
         if (data.kind === "navigate") {
           if (pending) return;
           const next = data.path.endsWith("/")

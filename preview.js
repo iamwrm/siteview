@@ -1,5 +1,6 @@
-import { init, parse } from "./vendor/lexer.js?v=9";
-import { virtualURL, localPath, applyEdits } from "./core.js?v=9";
+import { init, parse } from "./vendor/lexer.js?v=10";
+import { virtualURL, localPath, applyEdits } from "./core.js?v=10";
+import { renderMarkdown, MARKDOWN_STYLE } from "./markdown.js?v=10";
 
 const text = (file) => new TextDecoder().decode(file.bytes);
 const escapeAttribute = (value) =>
@@ -80,8 +81,10 @@ function bridge(base) {
         hash: url.hash,
       });
     } else {
-      // Do not let a preview replace the app or open a privileged same-origin tab.
+      // Never let a preview replace the app. Ask the host to open external links.
       event.preventDefault();
+      if (/^https?:\/\//i.test(href) && link.target !== "_self")
+        port.postMessage({ kind: "open", url: url.href });
     }
   });
 }
@@ -198,6 +201,7 @@ export class Preview {
 
   async build(path) {
     const file = await this.file(path);
+    if (file.type === "text/markdown") return this.markdown(text(file), path);
     if (!["text/html"].includes(file.type)) {
       const doc = document.implementation.createHTMLDocument(path);
       if (file.type.startsWith("image/")) {
@@ -296,6 +300,33 @@ export class Preview {
         entries.push([await this.asset(url, path), ...descriptor].join(" "));
       }
       node.setAttribute("srcset", entries.join(", "));
+    }
+    return this.finish(doc, path);
+  }
+
+  async markdown(source, path) {
+    const { html, title } = renderMarkdown(source);
+    const doc = document.implementation.createHTMLDocument(title || path);
+    const article = doc.createElement("article");
+    article.className = "markdown-body";
+    // The renderer escapes repository HTML, so this only contains generated tags.
+    article.innerHTML = html;
+    doc.body.append(article);
+    const style = doc.createElement("style");
+    style.textContent = MARKDOWN_STYLE;
+    doc.head.append(style);
+    for (const image of doc.querySelectorAll("img[src]"))
+      image.setAttribute(
+        "src",
+        await this.asset(image.getAttribute("src"), path),
+      );
+    for (const link of doc.querySelectorAll("a[href]")) {
+      const local = localPath(link.getAttribute("href"), path);
+      if (local && !link.getAttribute("href").startsWith("#"))
+        link.setAttribute(
+          "href",
+          virtualURL(local.path) + local.search + local.hash,
+        );
     }
     return this.finish(doc, path);
   }
