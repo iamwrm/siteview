@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
+    <meta
+      name="description"
+      content="Preview HTML and static sites straight from a GitHub repository. Public or private, entirely in your browser."
+    />
+    <title>Siteview · A window into your repo</title>
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./style.css" />
+    <script type="module" src="./app.js"></script>
+  </head>
+  <body>
+    <header class="header wrap">
+      <a class="brand" href="./" aria-label="Siteview home"
+        ><span class="brand-icon" aria-hidden="true">▧</span> siteview<span
+          class="brand-dot"
+          >.</span
+        ></a
+      >
+      <nav aria-label="Main">
+        <a href="#how-it-works"
+          >How it works <span aria-hidden="true">↗</span></a
+        ><a href="#private-repos"
+          >Private repos <span aria-hidden="true">↗</span></a
+        ><span class="static-badge"><i></i> 100% static</span>
+      </nav>
+    </header>
+    <main class="wrap">
+      <section class="hero">
+        <div class="eyebrow"><span></span> FROM REPOSITORY TO BROWSER</div>
+        <h1>Your code.<br />A real <em>web page.</em></h1>
+        <p class="lede">
+          Give that HTML file a place to live. Preview a GitHub file as a web
+          page, without deploying a thing.
+        </p>
+        <div class="hero-note">
+          <span aria-hidden="true">↳</span> Public repos. Private repos. Just a
+          URL.
+        </div>
+        <div class="hero-art" aria-hidden="true">
+          <div class="art-back"></div>
+          <div class="art-window">
+            <div class="art-bar">
+              <b></b><b></b><b></b><span>index.html</span>
+            </div>
+            <div class="art-code">
+              <span>&lt;!doctype html&gt;</span><br />&lt;html&gt;<br />&nbsp;
+              &lt;body&gt;<br />&nbsp; &nbsp; <strong>Hello, browser.</strong
+              ><br />&nbsp; &lt;/body&gt;<br />&lt;/html&gt;
+            </div>
+            <div class="art-sticker">IT'S ALIVE <span>↗</span></div>
+          </div>
+          <span class="art-spark">✳</span>
+        </div>
+      </section>
+
+      <section class="workbench" aria-label="Create a preview">
+        <div class="bench-heading">
+          <span><span class="step">01</span> DROP IN YOUR FILE</span
+          ><span class="bench-caption">No build. No server. No signup.</span>
+        </div>
+        <form id="preview-form">
+          <label for="source" class="field-label">GitHub file URL</label>
+          <div class="url-row">
+            <input
+              id="source"
+              type="url"
+              placeholder="https://github.com/you/repo/blob/main/index.html"
+              autocomplete="off"
+              spellcheck="false"
+              required
+            /><button class="primary" id="preview-button" type="submit">
+              Preview file <span aria-hidden="true">↗</span>
+            </button>
+          </div>
+          <div class="field-hint">
+            Paste a GitHub file link or a raw.githubusercontent.com URL.
+          </div>
+          <details id="options" class="options">
+            <summary>
+              <span aria-hidden="true">⌁</span> Private repository & advanced
+              options <span class="optional">optional</span>
+            </summary>
+            <div class="options-content">
+              <label for="token" class="field-label"
+                >GitHub personal access token
+                <span>for private repos or higher rate limits</span></label
+              >
+              <div class="token-row">
+                <input
+                  id="token"
+                  type="password"
+                  placeholder="github_pat_…"
+                  autocomplete="off"
+                  spellcheck="false"
+                /><button id="clear-token" type="button" class="secondary">
+                  Clear
+                </button>
+              </div>
+              <p class="field-hint">
+                Kept in memory for this tab only. Sent only to api.github.com,
+                never included in preview links.
+                <a
+                  href="https://github.com/settings/personal-access-tokens/new"
+                  target="_blank"
+                  rel="noreferrer"
+                  >Create a fine-grained token ↗</a
+                >
+                with <strong>Contents: Read-only</strong> for the selected repo.
+              </p>
+              <label for="ref" class="field-label"
+                >Explicit branch, tag, or commit</label
+              >
+              <input
+                id="ref"
+                type="text"
+                placeholder="Auto-detect from URL"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <p class="field-hint">
+                Use this if a branch name contains slashes or conflicts with a
+                tag.
+              </p>
+            </div>
+          </details>
+          <label class="consent"
+            ><input id="trust" type="checkbox" required /><span
+              >I trust this repository. Its scripts will run in a sandbox and
+              can contact external services.
+              <a href="#security">What this means</a></span
+            ></label
+          >
+        </form>
+        <div
+          id="status"
+          class="status"
+          role="status"
+          aria-live="polite"
+          hidden
+        ></div>
+        <button id="cancel" type="button" class="text-button" hidden>
+          Cancel loading
+        </button>
+      </section>
+
+      <section id="results" class="results" hidden aria-label="Preview links">
+        <div class="result-card">
+          <span class="result-kicker"
+            ><i class="live-dot"></i> FOLLOW THE BRANCH</span
+          >
+          <h2>Development link</h2>
+          <p>Opens the latest version of this branch or tag.</p>
+          <label class="sr-only" for="dev-url">Development link</label>
+          <div class="copy-row">
+            <input id="dev-url" readonly /><button
+              type="button"
+              data-copy="dev-url"
+              aria-label="Copy development link"
+            >
+              Copy ↗
+            </button>
+          </div>
+        </div>
+        <div class="result-card pinned">
+          <span class="result-kicker">⌖ LOCK THE VERSION</span>
+          <h2>Commit-pinned link</h2>
+          <p>Same file. Same commit. No moving target.</p>
+          <label class="sr-only" for="pinned-url">Commit-pinned link</label>
+          <div class="copy-row">
+            <input id="pinned-url" readonly /><button
+              type="button"
+              data-copy="pinned-url"
+              aria-label="Copy commit-pinned link"
+            >
+              Copy ↗
+            </button>
+          </div>
+        </div>
+        <p class="share-note">
+          These links open Siteview, not a CDN endpoint. Private repo viewers
+          need their own token. Links include the repository name and path, but
+          never your token.
+        </p>
+      </section>
+
+      <section id="viewer" class="viewer" hidden aria-label="File preview">
+        <div class="viewer-toolbar">
+          <div class="viewer-file">
+            <span class="live-dot"></span><span id="filename"></span
+            ><code id="commit"></code>
+          </div>
+          <div class="viewer-actions">
+            <button id="reload" type="button">Reload</button
+            ><button id="expand" type="button">Expand</button
+            ><button
+              id="close-preview"
+              type="button"
+              aria-label="Close preview"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+        <div id="frame-host"></div>
+        <div id="warnings" class="warnings" hidden></div>
+        <div class="viewer-footer">
+          <span>ISOLATED PREVIEW</span
+          ><a id="github-link" target="_blank" rel="noreferrer"
+            >View source on GitHub ↗</a
+          >
+        </div>
+      </section>
+
+      <section id="how-it-works" class="explain">
+        <div class="section-label">SMALL TOOL. SHORT INSTRUCTIONS.</div>
+        <h2>Less setup. More seeing.</h2>
+        <div class="explainer-grid">
+          <article>
+            <span class="number">01 /</span>
+            <h3>Find your file</h3>
+            <p>
+              Open an HTML file in GitHub. Copy the address. Relative styles,
+              images, and JavaScript come along for the ride.
+            </p>
+          </article>
+          <article>
+            <span class="number">02 /</span>
+            <h3>Make it a page</h3>
+            <p>
+              Paste the URL above. Siteview reads the files directly from GitHub
+              and assembles a preview in your browser.
+            </p>
+          </article>
+          <article>
+            <span class="number">03 /</span>
+            <h3>Pass it on</h3>
+            <p>
+              Copy a branch link for work in progress, or pin a link to a commit
+              for a specific version.
+            </p>
+          </article>
+        </div>
+      </section>
+      <section class="faq" aria-label="Questions">
+        <div>
+          <div class="section-label">GOOD TO KNOW</div>
+          <h2>A few details.</h2>
+          <p>
+            Like raw.githack, but the preview happens on your device. No proxy
+            required.
+          </p>
+        </div>
+        <div class="faq-items">
+          <details id="private-repos">
+            <summary>Can I preview a private repository?</summary>
+            <p>
+              Yes. Add a fine-grained GitHub PAT in the options above. Select
+              the repository and grant Contents: Read-only. Classic tokens need
+              the broader repo scope. Organization policies may require approval
+              or SSO authorization. The token is not saved. Refreshing or
+              closing the tab clears it.
+            </p>
+          </details>
+          <details id="security">
+            <summary>What can a preview access?</summary>
+            <p>
+              Repository scripts run in a sandbox without access to Siteview's
+              page, token, or browser storage. They can read other files at the
+              selected commit in the same repository through Siteview's
+              read-only bridge, and send data to external HTTPS services. Only
+              preview code you trust, especially in private repos. Forms,
+              popups, nested frames, and top-level navigation are blocked.
+            </p>
+          </details>
+          <details>
+            <summary>Is this a CDN or production hosting?</summary>
+            <p>
+              No. A static GitHub Pages site cannot change the response headers
+              of GitHub files or act as an authenticated proxy. Share links open
+              the viewer and fetch files on demand. You cannot use them as
+              script or stylesheet URLs on another site. For production hosting,
+              deploy your files to GitHub Pages or a CDN.
+            </p>
+          </details>
+          <details>
+            <summary>Which files and sites work?</summary>
+            <p>
+              Prebuilt HTML, CSS, images, classic scripts, and native ES modules
+              with relative imports. Root-relative paths start at the repository
+              root. Local page links and relative fetch() calls work through the
+              read-only bridge. JSON and text files display as source. Build
+              tools, servers, bare module imports, repository import maps,
+              workers, XHR, and dynamically constructed asset paths are not
+              supported. Build your app first and preview its output directory.
+              No extensionless route fallback is applied.
+            </p>
+          </details>
+          <details>
+            <summary>Are there limits?</summary>
+            <p>
+              Each preview is limited to 200 files, 8 MiB per file, and 40 MiB
+              total. GitHub API limits also apply, typically 60 requests per
+              hour without a token and 5,000 with one. Git LFS is not supported.
+              Large sites may need real hosting.
+            </p>
+          </details>
+        </div>
+      </section>
+    </main>
+    <footer class="wrap footer">
+      <a class="brand" href="./">▧ siteview.</a
+      ><span>Just files, meeting a browser.</span
+      ><span>Built for the open web. Private repos welcome.</span>
+    </footer>
+  </body>
+</html>
