@@ -1,4 +1,4 @@
-import { chooseRef, mime } from "./core.js?v=5";
+import { chooseRef, mime } from "./core.js?v=6";
 
 const API = "https://api.github.com";
 const MAX_FILE = 8 * 1024 * 1024;
@@ -33,25 +33,36 @@ export class GitHub {
     });
     if (allow404 && response.status === 404) return null;
     if (!response.ok) {
+      const fail = (message, status) => {
+        const error = new Error(message);
+        error.status = status;
+        return error;
+      };
       if (response.status === 401)
-        throw new Error(
+        throw fail(
           "GitHub rejected the token. Check that it is valid and has not expired.",
+          401,
         );
       if (response.status === 404)
-        throw new Error(
-          "File or repository not found. For private repos, provide a PAT with Contents: read access to this repository. Check the ref and filename too.",
+        throw fail(
+          this.token
+            ? "Not found, or this token cannot read the repo. Check Contents: Read permission, organization approval or SSO, the ref, and the filename."
+            : "Repository or file not found. If it is private, paste a PAT under Token and try again.",
+          404,
         );
       if (response.status === 403 || response.status === 429) {
         const reset = response.headers.get("x-ratelimit-reset");
         const suffix = reset
           ? ` Rate limit resets at ${new Date(Number(reset) * 1000).toLocaleTimeString()}.`
           : "";
-        throw new Error(
+        throw fail(
           `GitHub denied the request. Check token permissions, organization SSO authorization, or the API rate limit.${suffix}`,
+          response.status,
         );
       }
-      throw new Error(
+      throw fail(
         `GitHub request failed (${response.status}). Try again later.`,
+        response.status,
       );
     }
     return response;
@@ -73,12 +84,20 @@ export class GitHub {
               false,
               true,
             );
-            return response ? response.json() : [];
+            return response ? await response.json() : null;
           }),
         );
+        if (!this.token && results.every((result) => result === null)) {
+          const error = new Error(
+            "Repository, ref, or file not found. If it is private, paste a PAT under Token and try again.",
+          );
+          error.status = 404;
+          throw error;
+        }
         ref = chooseRef(
           input.tail,
           results
+            .filter(Boolean)
             .flat()
             .map((item) =>
               qualified

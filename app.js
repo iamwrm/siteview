@@ -1,6 +1,6 @@
-import { parseGitHubURL, sourceURL, shareURL } from "./core.js?v=5";
-import { GitHub } from "./github.js?v=5";
-import { Preview } from "./preview.js?v=5";
+import { parseGitHubURL, sourceURL, shareURL } from "./core.js?v=6";
+import { GitHub } from "./github.js?v=6";
+import { Preview } from "./preview.js?v=6";
 
 const $ = (id) => document.getElementById(id);
 let session;
@@ -13,6 +13,10 @@ function status(message, error = false) {
   $("status").hidden = !message;
   $("status").textContent = message;
   $("status").dataset.error = String(error);
+}
+
+function updateTokenLabel() {
+  $("token-summary").textContent = $("token").value ? "Token •" : "Token";
 }
 
 function busy(value) {
@@ -194,6 +198,15 @@ $("preview-form").addEventListener("submit", async (event) => {
     await render(active.target.path);
   } catch (error) {
     if (session !== active) return;
+    if (
+      error.name !== "AbortError" &&
+      (error.status === 401 ||
+        error.status === 403 ||
+        (error.status === 404 && !active.github.token))
+    ) {
+      $("options").open = true;
+      $("token").focus();
+    }
     status(
       error.name === "AbortError" ? "Loading canceled." : error.message,
       error.name !== "AbortError",
@@ -206,6 +219,7 @@ $("cancel").addEventListener("click", () => {
   close();
   status("Loading canceled.");
 });
+$("token").addEventListener("input", updateTokenLabel);
 $("trust").addEventListener("change", () => {
   if (!$("trust").checked) return;
   $("options").open = false;
@@ -214,6 +228,7 @@ $("trust").addEventListener("change", () => {
 $("clear-token").addEventListener("click", () => {
   close();
   $("token").value = "";
+  updateTokenLabel();
   $("options").open = true;
   status("Token cleared.");
 });
@@ -272,6 +287,7 @@ function readLink() {
 // Do not restore credentials or consent from browser form-state restoration.
 $("token").value = "";
 $("trust").checked = false;
+updateTokenLabel();
 readLink();
 window.addEventListener("hashchange", () => {
   if (!location.hash.startsWith("#url=")) return;

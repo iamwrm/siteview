@@ -63,7 +63,10 @@ async function start(page, token = "") {
     .locator("#source")
     .fill("https://github.com/alice/private/blob/main/site/index.html");
   await openAccess(page);
-  if (token) await page.locator("#token").fill(token);
+  if (token) {
+    await page.locator("#token").fill(token);
+    await expect(page.locator("#token-summary")).toHaveText("Token •");
+  }
   await page.locator("#trust").check();
   await page.locator("#preview-button").click();
 }
@@ -147,6 +150,7 @@ test("private preview rewrites CSS, images, ES modules, dynamic imports and fetc
   await page.locator("#options summary").click();
   await page.locator("#clear-token").click();
   await expect(page.locator("#token")).toHaveValue("");
+  await expect(page.locator("#token-summary")).toHaveText("Token");
   await expect(page.locator("#viewer")).toBeHidden();
   await expect(page.locator("#status")).toHaveText("Token cleared.");
 });
@@ -158,6 +162,7 @@ test("public preview omits Authorization and share links require opt-in", async 
   await start(page);
   await expect(page.locator("#viewer")).toBeVisible();
   expect(requests.every((r) => r.auth === undefined)).toBe(true);
+  await expect(page.locator("#token-summary")).toHaveText("Token");
   const share = await page.locator("#dev-url").inputValue();
   const count = requests.length;
   await page.goto(share);
@@ -180,6 +185,22 @@ for (const code of [401, 403, 404, 429, 500])
     await expect(page.locator("#status")).not.toContainText("private details");
     await expect(page.locator("#preview-button")).toBeEnabled();
   });
+
+test("missing token on a private repo opens and focuses Token", async ({
+  page,
+}) => {
+  await mockGitHub(page, { fail: 404 });
+  await page.goto("/");
+  await page
+    .locator("#source")
+    .fill("https://github.com/alice/private/blob/main/site/index.html");
+  await openAccess(page);
+  await page.locator("#trust").check();
+  await page.locator("#preview-button").click();
+  await expect(page.locator("#options")).toHaveAttribute("open", "");
+  await expect(page.locator("#token")).toBeFocused();
+  await expect(page.locator("#status")).toContainText("If it is private");
+});
 
 test("slash branches resolve to longest matching branch", async ({ page }) => {
   const requests = await mockGitHub(page);
@@ -235,9 +256,9 @@ test("works under a GitHub Pages project subdirectory", async ({ page }) => {
   );
   expect(
     await page.locator('link[rel="stylesheet"]').getAttribute("href"),
-  ).toBe("./style.css?v=5");
+  ).toBe("./style.css?v=6");
   expect(await page.locator('script[type="module"]').getAttribute("src")).toBe(
-    "./app.js?v=5",
+    "./app.js?v=6",
   );
   const dimensions = await page
     .locator("#frame-host iframe")
