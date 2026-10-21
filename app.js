@@ -1,6 +1,6 @@
-import { parseGitHubURL, sourceURL, shareURL } from "./core.js?v=4";
-import { GitHub } from "./github.js?v=4";
-import { Preview } from "./preview.js?v=4";
+import { parseGitHubURL, sourceURL, shareURL } from "./core.js?v=5";
+import { GitHub } from "./github.js?v=5";
+import { Preview } from "./preview.js?v=5";
 
 const $ = (id) => document.getElementById(id);
 let session;

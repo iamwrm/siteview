@@ -9,7 +9,7 @@ const files = {
   "site/dot.svg":
     '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="red"/></svg>',
   "site/classic.js": `document.body.dataset.classic = 'yes'; fetch('./data.json').then(r=>r.json()).then(d=>document.body.dataset.fetch=d.message); try {parent.document.body.dataset.pwned='yes'} catch {document.body.dataset.isolated='yes'}; try {localStorage.setItem('pwned','yes')} catch {document.body.dataset.storage='blocked'}`,
-  "site/main.js": `import { message } from './module.js'; import { value } from './cycle-a.js'; document.body.dataset.cycle=value; document.body.dataset.module=message; import('./dynamic.js').then(d=>document.body.dataset.dynamic=d.message); document.querySelector('#via-module').src = new URL('./dot.svg', import.meta.url).href;`,
+  "site/main.js": `import { message } from './module.js'; import { value } from './cycle-a.js'; document.body.dataset.cycle=value; document.body.dataset.module=message; import('./dynamic.js').then(d=>document.body.dataset.dynamic=d.message); document.querySelector('#via-module').src = new URL('./dot.svg', import.meta.url).href; const worker = new Worker(URL.createObjectURL(new Blob(["self.onmessage = () => self.postMessage('worker works')"], { type: 'text/javascript' }))); worker.onmessage = e => document.body.dataset.worker = e.data; worker.postMessage(1);`,
   "site/cycle-a.js": `import { b } from './cycle-b.js'; export function a(){ return 'a'; } export const value = b();`,
   "site/cycle-b.js": `import { a } from './cycle-a.js'; export function b(){ return a() + 'b'; }`,
   "site/module.js": `export const message='modules work';`,
@@ -90,6 +90,10 @@ test("private preview rewrites CSS, images, ES modules, dynamic imports and fetc
     "dynamic works",
   );
   await expect(frame.locator("body")).toHaveAttribute("data-cycle", "ab");
+  await expect(frame.locator("body")).toHaveAttribute(
+    "data-worker",
+    "worker works",
+  );
   await expect(frame.locator("body")).toHaveAttribute(
     "data-fetch",
     "fetch works",
@@ -231,9 +235,9 @@ test("works under a GitHub Pages project subdirectory", async ({ page }) => {
   );
   expect(
     await page.locator('link[rel="stylesheet"]').getAttribute("href"),
-  ).toBe("./style.css?v=4");
+  ).toBe("./style.css?v=5");
   expect(await page.locator('script[type="module"]').getAttribute("src")).toBe(
-    "./app.js?v=4",
+    "./app.js?v=5",
   );
   const dimensions = await page
     .locator("#frame-host iframe")

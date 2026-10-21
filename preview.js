@@ -1,5 +1,5 @@
-import { init, parse } from "./vendor/lexer.js?v=4";
-import { virtualURL, localPath, applyEdits } from "./core.js?v=4";
+import { init, parse } from "./vendor/lexer.js?v=5";
+import { virtualURL, localPath, applyEdits } from "./core.js?v=5";
 
 const text = (file) => new TextDecoder().decode(file.bytes);
 const escapeAttribute = (value) =>
@@ -304,7 +304,7 @@ export class Preview {
     const imports = {};
     for (const [name, url] of this.modules) imports[virtualURL(name)] = url;
     const policy =
-      "default-src 'none'; script-src 'unsafe-inline' data: https:; style-src 'unsafe-inline' data: https:; img-src blob: data: https:; font-src blob: data: https:; media-src blob: data: https:; connect-src blob: data: https:; base-uri 'none'; form-action 'none'; frame-src 'none'; object-src 'none'";
+      "default-src 'none'; script-src 'unsafe-inline' data: https:; worker-src blob:; style-src 'unsafe-inline' data: https:; img-src blob: data: https:; font-src blob: data: https:; media-src blob: data: https:; connect-src blob: data: https:; base-uri 'none'; form-action 'none'; frame-src 'none'; object-src 'none'";
     const prefix = `<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${escapeAttribute(policy)}"><meta name="referrer" content="no-referrer"><script>(${bridge.toString()})(${JSON.stringify(virtualURL(path)).replaceAll("<", "\\u003c")})<\/script><script type="importmap">${JSON.stringify({ imports }).replaceAll("<", "\\u003c")}<\/script>`;
     doc.head.insertAdjacentHTML("afterbegin", prefix);
     return "<!doctype html>\n" + doc.documentElement.outerHTML;
