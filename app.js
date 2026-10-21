@@ -17,7 +17,7 @@ function status(message, error = false) {
 
 function busy(value) {
   $("preview-button").disabled = value;
-  $("preview-button").textContent = value ? "Loading…" : "Preview file ↗";
+  $("preview-button").textContent = value ? "Loading…" : "Preview ↗";
   $("cancel").hidden = !value;
 }
 
@@ -38,6 +38,8 @@ function close() {
   session?.github.dispose();
   session = null;
   $("viewer").hidden = true;
+  $("empty-state").hidden = false;
+  $("results").open = false;
   $("viewer").classList.remove("expanded");
   $("expand").textContent = "Expand";
   $("results").hidden = true;
@@ -142,6 +144,8 @@ async function render(path, hash = "") {
     active.target.path = path;
     updateLinks(active.target);
     $("viewer").hidden = false;
+    $("empty-state").hidden = true;
+    $("options").open = false;
     $("warnings").textContent = [...preview.warnings].join(" ");
     $("warnings").hidden = !preview.warnings.size;
     status(
@@ -155,6 +159,7 @@ async function render(path, hash = "") {
     if (session !== active || id !== generation) return;
     preview.dispose();
     $("viewer").hidden = true;
+    $("empty-state").hidden = false;
     status(
       error.name === "AbortError" ? "Loading canceled." : error.message,
       error.name !== "AbortError",
@@ -220,10 +225,20 @@ $("expand").addEventListener("click", () => {
 });
 window.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
+    $("options").open = false;
+    $("results").open = false;
     $("viewer").classList.remove("expanded");
     $("expand").textContent = "Expand";
   }
 });
+for (const [id, other] of [
+  ["options", "results"],
+  ["results", "options"],
+]) {
+  $(id).addEventListener("toggle", () => {
+    if ($(id).open) $(other).open = false;
+  });
+}
 for (const button of document.querySelectorAll("[data-copy]"))
   button.addEventListener("click", async () => {
     const field = $(button.dataset.copy);

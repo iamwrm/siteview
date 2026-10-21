@@ -136,6 +136,8 @@ test("private preview rewrites CSS, images, ES modules, dynamic imports and fetc
     page.frameLocator("#frame-host iframe").locator("h1"),
   ).toHaveText("Second page");
   await expect(page.locator("#filename")).toHaveText("site/next.html");
+  await expect(page.locator("#options")).not.toHaveAttribute("open", "");
+  await page.locator("#options summary").click();
   await page.locator("#clear-token").click();
   await expect(page.locator("#token")).toHaveValue("");
   await expect(page.locator("#viewer")).toBeHidden();
@@ -206,6 +208,28 @@ test("works under a GitHub Pages project subdirectory", async ({ page }) => {
   await expect(
     page.frameLocator("#frame-host iframe").locator("h1"),
   ).toHaveText("Private demo");
+  await expect(page.locator("#empty-state")).toBeHidden();
+  const dimensions = await page
+    .locator("#frame-host iframe")
+    .evaluate((frame) => {
+      const rect = frame.getBoundingClientRect();
+      return {
+        height: rect.height,
+        bottom: rect.bottom,
+        viewport: innerHeight,
+        pageHeight: document.documentElement.scrollHeight,
+      };
+    });
+  expect(dimensions.height).toBeGreaterThan(dimensions.viewport * 0.65);
+  expect(dimensions.bottom).toBeLessThanOrEqual(dimensions.viewport);
+  expect(dimensions.pageHeight).toBe(dimensions.viewport);
+  await expect(page.locator(".hero, .explain, .faq, .result-card")).toHaveCount(
+    0,
+  );
+  await page.locator("#results summary").click();
+  await expect(page.locator("#dev-url")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#dev-url")).toBeHidden();
   await page.screenshot({
     path: "test-results/desktop.png",
     fullPage: true,
@@ -241,4 +265,22 @@ test("mobile form fits viewport and renders without a build step", async ({
   );
   await expect(page.locator("h1")).toBeVisible();
   await page.screenshot({ path: "test-results/mobile.png", fullPage: true });
+  await mockGitHub(page);
+  await start(page);
+  await expect(
+    page.frameLocator("#frame-host iframe").locator("h1"),
+  ).toHaveText("Private demo");
+  const layout = await page
+    .locator("#frame-host iframe")
+    .evaluate((frame) => ({
+      height: frame.clientHeight,
+      viewport: innerHeight,
+      scrollWidth: document.documentElement.scrollWidth,
+    }));
+  expect(layout.height).toBeGreaterThan(layout.viewport * 0.6);
+  expect(layout.scrollWidth).toBe(375);
+  await page.screenshot({
+    path: "test-results/mobile-preview.png",
+    fullPage: true,
+  });
 });
