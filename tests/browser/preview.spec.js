@@ -278,9 +278,9 @@ test("works under a GitHub Pages project subdirectory", async ({ page }) => {
   );
   expect(
     await page.locator('link[rel="stylesheet"]').getAttribute("href"),
-  ).toBe("./style.css?v=8");
+  ).toBe("./style.css?v=9");
   expect(await page.locator('script[type="module"]').getAttribute("src")).toBe(
-    "./app.js?v=8",
+    "./app.js?v=9",
   );
   const dimensions = await page
     .locator("#frame-host iframe")
@@ -326,6 +326,17 @@ test("cancel aborts a pending API request and clears the busy state", async ({
   await expect(page.locator("#status")).toHaveText("Loading canceled.");
   await expect(page.locator("#preview-button")).toBeEnabled();
   await expect(page.locator("#viewer")).toBeHidden();
+});
+
+test("clears a URL restored by browser form state", async ({ page }) => {
+  await page.addInitScript(() => {
+    document.addEventListener("DOMContentLoaded", () => {
+      document.querySelector("#source").value =
+        "https://github.com/iamwrm/agent-doc-drive/blob/main/index.html";
+    });
+  });
+  await page.goto("/");
+  await expect(page.locator("#source")).toHaveValue("");
 });
 
 test("mobile form fits viewport and renders without a build step", async ({

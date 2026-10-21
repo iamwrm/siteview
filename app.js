@@ -1,6 +1,6 @@
-import { parseGitHubURL, sourceURL, shareURL } from "./core.js?v=8";
-import { GitHub } from "./github.js?v=8";
-import { Preview } from "./preview.js?v=8";
+import { parseGitHubURL, sourceURL, shareURL } from "./core.js?v=9";
+import { GitHub } from "./github.js?v=9";
+import { Preview } from "./preview.js?v=9";
 
 const $ = (id) => document.getElementById(id);
 let session;
@@ -293,10 +293,18 @@ function readLink() {
   );
 }
 // Do not restore credentials or consent from browser form-state restoration.
+// Do not restore credentials, consent, or a previous URL from browser form state.
+// Browsers refill id-keyed inputs on reload and back-navigation even with autocomplete=off.
+function clearRestoredForm() {
+  if (session || location.hash.startsWith("#url=")) return;
+  $("source").value = "";
+}
 $("token").value = "";
 $("trust").checked = false;
 updateTokenLabel();
 readLink();
+clearRestoredForm();
+window.addEventListener("pageshow", clearRestoredForm);
 window.addEventListener("hashchange", () => {
   if (!location.hash.startsWith("#url=")) return;
   close();
