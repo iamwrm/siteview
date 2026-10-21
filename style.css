@@ -130,6 +130,18 @@ summary {
 summary:hover {
   background: var(--surface);
 }
+.token-state {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #8c959f;
+  margin-right: 6px;
+  vertical-align: 1px;
+}
+.token-state[data-set="true"] {
+  background: #1a7f37;
+}
 summary::-webkit-details-marker {
   display: none;
 }

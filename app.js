@@ -1,6 +1,6 @@
-import { parseGitHubURL, sourceURL, shareURL } from "./core.js?v=6";
-import { GitHub } from "./github.js?v=6";
-import { Preview } from "./preview.js?v=6";
+import { parseGitHubURL, sourceURL, shareURL } from "./core.js?v=7";
+import { GitHub } from "./github.js?v=7";
+import { Preview } from "./preview.js?v=7";
 
 const $ = (id) => document.getElementById(id);
 let session;
@@ -16,7 +16,15 @@ function status(message, error = false) {
 }
 
 function updateTokenLabel() {
-  $("token-summary").textContent = $("token").value ? "Token •" : "Token";
+  const set = Boolean($("token").value);
+  $("token-state").dataset.set = String(set);
+  $("token-summary").setAttribute(
+    "aria-label",
+    set ? "Token, set" : "Token, not set",
+  );
+  $("token-summary").title = set
+    ? "Token is set for this tab"
+    : "Private repository token and preview settings";
 }
 
 function busy(value) {

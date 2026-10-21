@@ -7,8 +7,8 @@
     <meta name="description" content="Preview a GitHub file as a web page." />
     <title>Siteview</title>
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="./style.css?v=6" />
-    <script type="module" src="./app.js?v=6"></script>
+    <link rel="stylesheet" href="./style.css?v=7" />
+    <script type="module" src="./app.js?v=7"></script>
   </head>
   <body>
     <header class="header">
@@ -35,7 +35,13 @@
               id="token-summary"
               title="Private repository token and preview settings"
             >
-              Token
+              <span
+                id="token-state"
+                class="token-state"
+                data-set="false"
+                aria-hidden="true"
+              ></span
+              >Token
             </summary>
             <div class="options-content">
               <label for="token"
