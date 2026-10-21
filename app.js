@@ -1,6 +1,6 @@
-import { parseGitHubURL, sourceURL, shareURL } from "./core.js?v=7";
-import { GitHub } from "./github.js?v=7";
-import { Preview } from "./preview.js?v=7";
+import { parseGitHubURL, sourceURL, shareURL } from "./core.js?v=8";
+import { GitHub } from "./github.js?v=8";
+import { Preview } from "./preview.js?v=8";
 
 const $ = (id) => document.getElementById(id);
 let session;
@@ -17,7 +17,7 @@ function status(message, error = false) {
 
 function updateTokenLabel() {
   const set = Boolean($("token").value);
-  $("token-state").dataset.set = String(set);
+  $("token-summary").dataset.token = String(set);
   $("token-summary").setAttribute(
     "aria-label",
     set ? "Token, set" : "Token, not set",

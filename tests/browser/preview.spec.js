@@ -65,13 +65,18 @@ async function start(page, token = "") {
   await openAccess(page);
   if (token) {
     await page.locator("#token").fill(token);
-    await expect(page.locator("#token-state")).toHaveAttribute(
-      "data-set",
+    await page.mouse.move(0, 0);
+    await expect(page.locator("#token-summary")).toHaveAttribute(
+      "data-token",
       "true",
     );
-    await expect(page.locator("#token-state")).toHaveCSS(
+    await expect(page.locator("#token-summary")).toHaveCSS(
       "background-color",
       "rgb(26, 127, 55)",
+    );
+    await expect(page.locator("#token-summary")).toHaveCSS(
+      "color",
+      "rgb(255, 255, 255)",
     );
   }
   await page.locator("#trust").check();
@@ -157,8 +162,8 @@ test("private preview rewrites CSS, images, ES modules, dynamic imports and fetc
   await page.locator("#options summary").click();
   await page.locator("#clear-token").click();
   await expect(page.locator("#token")).toHaveValue("");
-  await expect(page.locator("#token-state")).toHaveAttribute(
-    "data-set",
+  await expect(page.locator("#token-summary")).toHaveAttribute(
+    "data-token",
     "false",
   );
   await expect(page.locator("#viewer")).toBeHidden();
@@ -172,13 +177,13 @@ test("public preview omits Authorization and share links require opt-in", async 
   await start(page);
   await expect(page.locator("#viewer")).toBeVisible();
   expect(requests.every((r) => r.auth === undefined)).toBe(true);
-  await expect(page.locator("#token-state")).toHaveAttribute(
-    "data-set",
+  await expect(page.locator("#token-summary")).toHaveAttribute(
+    "data-token",
     "false",
   );
-  await expect(page.locator("#token-state")).toHaveCSS(
+  await expect(page.locator("#token-summary")).toHaveCSS(
     "background-color",
-    "rgb(140, 149, 159)",
+    "rgb(234, 238, 242)",
   );
   const share = await page.locator("#dev-url").inputValue();
   const count = requests.length;
@@ -273,9 +278,9 @@ test("works under a GitHub Pages project subdirectory", async ({ page }) => {
   );
   expect(
     await page.locator('link[rel="stylesheet"]').getAttribute("href"),
-  ).toBe("./style.css?v=7");
+  ).toBe("./style.css?v=8");
   expect(await page.locator('script[type="module"]').getAttribute("src")).toBe(
-    "./app.js?v=7",
+    "./app.js?v=8",
   );
   const dimensions = await page
     .locator("#frame-host iframe")

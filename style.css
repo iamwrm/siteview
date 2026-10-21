@@ -130,17 +130,18 @@ summary {
 summary:hover {
   background: var(--surface);
 }
-.token-state {
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #8c959f;
-  margin-right: 6px;
-  vertical-align: 1px;
+#token-summary[data-token="false"] {
+  background: #eaeef2;
+  border-color: #d0d7de;
+  color: #57606a;
 }
-.token-state[data-set="true"] {
+#token-summary[data-token="true"] {
   background: #1a7f37;
+  border-color: #1a7f37;
+  color: #ffffff;
+}
+#token-summary[data-token="true"]:hover {
+  background: #116329;
 }
 summary::-webkit-details-marker {
   display: none;
