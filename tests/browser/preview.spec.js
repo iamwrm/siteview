@@ -16,6 +16,7 @@ const files = {
   "site/dynamic.js": `export const message='dynamic works';`,
   "site/data.json": '{"message":"fetch works"}',
   "site/next.html": '<h1>Second page</h1><a href="./index.html">Back</a>',
+  "site/framed.html": `<!doctype html><h1>Outer</h1><iframe id="inline" srcdoc="&lt;h2&gt;Inner&lt;/h2&gt;&lt;script&gt;try{parent.document.body.dataset.pwned='yes'}catch{}&lt;/script&gt;"></iframe><iframe id="remote" src="https://example.com/"></iframe>`,
   "docs/README.md": [
     "# Project docs",
     "",
@@ -468,4 +469,28 @@ test("mobile form fits viewport and renders without a build step", async ({
     path: "test-results/mobile-preview.png",
     fullPage: true,
   });
+});
+
+test("srcdoc iframes render in their own sandbox and src iframes are removed", async ({
+  page,
+}) => {
+  await mockGitHub(page);
+  await page.goto("/");
+  await page
+    .locator("#source")
+    .fill("https://github.com/alice/private/blob/main/site/framed.html");
+  await openAccess(page);
+  await page.locator("#trust").check();
+  await page.locator("#preview-button").click();
+  const outer = page.frameLocator("#frame-host iframe");
+  await expect(outer.locator("h1")).toHaveText("Outer");
+  await expect(outer.frameLocator("#inline").locator("h2")).toHaveText(
+    "Inner",
+  );
+  await expect(outer.locator("#remote")).toHaveCount(0);
+  await expect(outer.locator("#inline")).toHaveAttribute(
+    "sandbox",
+    "allow-scripts",
+  );
+  expect(await page.locator("body").getAttribute("data-pwned")).toBeNull();
 });

@@ -221,9 +221,19 @@ export class Preview {
     }
     const doc = new DOMParser().parseFromString(text(file), "text/html");
     for (const node of doc.querySelectorAll(
-      "base, meta[http-equiv], iframe, frame, object, embed",
+      "base, meta[http-equiv], frame, object, embed",
     ))
       node.remove();
+    // Inline srcdoc frames (e.g. SingleFile saves) stay; they inherit this
+    // document's CSP and get their own opaque-origin sandbox. Others go.
+    for (const node of doc.querySelectorAll("iframe")) {
+      if (!node.hasAttribute("srcdoc")) {
+        node.remove();
+        continue;
+      }
+      node.removeAttribute("src");
+      node.setAttribute("sandbox", "allow-scripts");
+    }
     for (const node of doc.querySelectorAll("[integrity]"))
       node.removeAttribute("integrity");
     for (const node of doc.querySelectorAll(
