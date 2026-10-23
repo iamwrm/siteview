@@ -41,7 +41,7 @@ Private file bytes and generated data URLs remain in browser memory until the pr
 
 ## Preview isolation and trust
 
-Repository HTML is rendered in an iframe with sandbox="allow-scripts", deliberately **without allow-same-origin**. It cannot read the parent document, PAT, or parent storage. Popups, forms, nested frames and top navigation are blocked. Preview links to other repository pages are handled through a MessageChannel. External page links are blocked rather than opening unsandboxed content on the app origin.
+Repository HTML is rendered in an iframe with sandbox="allow-scripts", deliberately **without allow-same-origin**. It cannot read the parent document, PAT, or parent storage. Popups, forms and top navigation are blocked. Nested frames are removed, except inline `srcdoc` frames (for example in SingleFile saves), which run in their own `allow-scripts` sandbox without a `src`. Preview links to other repository pages are handled through a MessageChannel. External page links are blocked rather than opening unsandboxed content on the app origin.
 
 The preview receives no credentials. Its read-only message bridge can fetch files only from the selected repository and resolved commit. It cannot select another repository, branch, API endpoint or HTTP method. Clicks on external `http`/`https` links are forwarded to the host page, which opens them in a new tab; previews cannot navigate the app itself. Initial files and bridge reads share size/count limits and an in-memory cache. It can read any file at that commit, not only files initially referenced by the HTML or Markdown.
 
