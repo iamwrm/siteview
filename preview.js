@@ -1,6 +1,6 @@
-import { init, parse } from "./vendor/lexer.js?v=11";
-import { virtualURL, localPath, applyEdits } from "./core.js?v=11";
-import { renderMarkdown, MARKDOWN_STYLE } from "./markdown.js?v=11";
+import { init, parse } from "./vendor/lexer.js?v=12";
+import { virtualURL, localPath, applyEdits } from "./core.js?v=12";
+import { renderMarkdown, MARKDOWN_STYLE } from "./markdown.js?v=12";
 
 const text = (file) => new TextDecoder().decode(file.bytes);
 const escapeAttribute = (value) =>

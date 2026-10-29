@@ -1,6 +1,6 @@
-import { parseGitHubURL, sourceURL, shareURL } from "./core.js?v=11";
-import { GitHub } from "./github.js?v=11";
-import { Preview } from "./preview.js?v=11";
+import { parseGitHubURL, sourceURL, shareURL } from "./core.js?v=12";
+import { GitHub } from "./github.js?v=12";
+import { Preview } from "./preview.js?v=12";
 
 const $ = (id) => document.getElementById(id);
 let session;
@@ -9,48 +9,172 @@ let bridgePort;
 let handshake;
 let currentFrame;
 
+// Browser storage holds only what the user opts into. Previews run in an
+// opaque-origin sandbox and can read none of it.
+const KEYS = {
+  token: "siteview:token",
+  trusted: "siteview:trusted",
+  trustAll: "siteview:trust-all",
+  recent: "siteview:recent",
+};
+const store = {
+  get(key, fallback = null) {
+    try {
+      const value = localStorage.getItem(key);
+      return value === null ? fallback : JSON.parse(value);
+    } catch {
+      return fallback;
+    }
+  },
+  set(key, value) {
+    try {
+      if (value === null) localStorage.removeItem(key);
+      else localStorage.setItem(key, JSON.stringify(value));
+    } catch {}
+  },
+};
+
 function status(message, error = false) {
   $("status").hidden = !message;
   $("status").textContent = message;
   $("status").dataset.error = String(error);
 }
 
-// Opt-in only: the token is stored in this origin's localStorage when the user
-// asks. Previews run in an opaque-origin sandbox and cannot read it.
-const TOKEN_KEY = "siteview:token";
-function saveToken() {
-  try {
-    if ($("remember-token").checked && $("token").value)
-      localStorage.setItem(TOKEN_KEY, $("token").value);
-    else localStorage.removeItem(TOKEN_KEY);
-  } catch {}
+function view(name) {
+  document.body.dataset.view = name;
 }
+
+function busy(value) {
+  document.body.toggleAttribute("data-busy", value);
+  $("go").hidden = value;
+  $("cancel").hidden = !value;
+}
+
+// Token
+
+function saveToken() {
+  store.set(
+    KEYS.token,
+    $("remember-token").checked && $("token").value ? $("token").value : null,
+  );
+}
+
 function restoreToken() {
-  let saved = null;
-  try {
-    saved = localStorage.getItem(TOKEN_KEY);
-  } catch {}
-  $("token").value = saved || "";
-  $("remember-token").checked = Boolean(saved);
+  const saved = store.get(KEYS.token);
+  $("token").value = typeof saved === "string" ? saved : "";
+  $("remember-token").checked = Boolean($("token").value);
+  updateTokenLabel();
 }
 
 function updateTokenLabel() {
   const set = Boolean($("token").value);
-  $("token-summary").dataset.token = String(set);
-  $("token-summary").setAttribute(
+  $("settings-button").dataset.token = String(set);
+  $("settings-button").setAttribute(
     "aria-label",
-    set ? "Token, set" : "Token, not set",
+    set ? "Settings, token set" : "Settings",
   );
-  $("token-summary").title = set
-    ? "Token is set for this tab"
-    : "Private repository token and preview settings";
 }
 
-function busy(value) {
-  $("preview-button").disabled = value;
-  $("preview-button").textContent = value ? "Loading…" : "Preview ↗";
-  $("cancel").hidden = !value;
+function openSettings(focusToken = false) {
+  updateTrustSummary();
+  if (!$("settings").open) $("settings").showModal();
+  if (focusToken) $("token").focus();
 }
+
+// Trust: asked once per repository, unless the user trusts every repository.
+
+const repoKey = ({ owner, repo }) => `${owner}/${repo}`.toLowerCase();
+
+function updateTrustSummary() {
+  const count = store.get(KEYS.trusted, []).length;
+  $("trust-all").checked = store.get(KEYS.trustAll) === true;
+  $("trusted-count").textContent = count
+    ? `${count} trusted ${count === 1 ? "repository" : "repositories"}.`
+    : "";
+  $("forget-trusted").hidden = !count;
+}
+
+function trust(input) {
+  const key = repoKey(input);
+  if (store.get(KEYS.trustAll) === true) return Promise.resolve(true);
+  if (store.get(KEYS.trusted, []).includes(key)) return Promise.resolve(true);
+  const dialog = $("trust");
+  if (dialog.open) return Promise.resolve(false);
+  $("trust-repo").textContent = `${input.owner}/${input.repo}`;
+  $("trust-everything").checked = false;
+  dialog.returnValue = "";
+  dialog.showModal();
+  return new Promise((resolve) => {
+    dialog.addEventListener(
+      "close",
+      () => {
+        if (dialog.returnValue !== "run") return resolve(false);
+        if ($("trust-everything").checked) store.set(KEYS.trustAll, true);
+        else
+          store.set(KEYS.trusted, [
+            ...new Set([...store.get(KEYS.trusted, []), key]),
+          ]);
+        resolve(true);
+      },
+      { once: true },
+    );
+  });
+}
+
+// Recent previews
+
+function addRecent(target) {
+  const url = sourceURL(target);
+  const entry = {
+    url,
+    ref: target.ref,
+    repo: `${target.owner}/${target.repo}`,
+    path: target.path,
+  };
+  const list = store.get(KEYS.recent, []).filter((item) => item.url !== url);
+  store.set(KEYS.recent, [entry, ...list].slice(0, 8));
+  renderRecent();
+}
+
+function renderRecent() {
+  const list = store.get(KEYS.recent, []);
+  $("recent").hidden = !list.length;
+  $("recent-list").replaceChildren(
+    ...list.map((item) => {
+      const li = document.createElement("li");
+      const open = document.createElement("button");
+      open.type = "button";
+      open.className = "recent-open";
+      open.title = item.url;
+      const path = document.createElement("strong");
+      path.textContent = item.path;
+      const repo = document.createElement("span");
+      repo.textContent = item.repo;
+      open.append(path, repo);
+      open.addEventListener("click", () => {
+        $("source").value = item.url;
+        start(item.url, item.ref);
+      });
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "icon";
+      remove.title = "Remove";
+      remove.innerHTML =
+        '<svg><use href="#i-close" /></svg><span class="sr-only">Remove</span>';
+      remove.addEventListener("click", () => {
+        store.set(
+          KEYS.recent,
+          store.get(KEYS.recent, []).filter((entry) => entry.url !== item.url),
+        );
+        renderRecent();
+      });
+      li.append(open, remove);
+      return li;
+    }),
+  );
+}
+
+// Preview lifecycle
 
 function disconnect() {
   if (handshake) window.removeEventListener("message", handshake);
@@ -68,24 +192,30 @@ function close() {
   session?.preview?.dispose();
   session?.github.dispose();
   session = null;
-  $("viewer").hidden = true;
-  $("empty-state").hidden = false;
-  $("github-link").hidden = true;
-  $("results").hidden = true;
-  $("results").open = false;
-  $("viewer").classList.remove("expanded");
-  $("expand").textContent = "Expand";
+  $("share").hidePopover?.();
+  $("warnings").hidden = true;
+  document.title = "Siteview";
+  view("home");
   busy(false);
+}
+
+function goHome() {
+  close();
+  status("");
+  history.replaceState(null, "", location.pathname + location.search);
+  $("source").value = "";
+  $("source").focus();
 }
 
 function updateLinks(target) {
   $("dev-url").value = shareURL(location.href, target);
   $("pinned-url").value = shareURL(location.href, target, target.sha);
   $("github-link").href = sourceURL(target);
-  $("github-link").hidden = false;
   $("filename").textContent = target.path;
+  $("filename").title = target.path;
   $("commit").textContent = target.sha.slice(0, 7);
-  $("results").hidden = false;
+  $("source").value = sourceURL(target);
+  document.title = `${target.path} · Siteview`;
   history.replaceState(null, "", shareURL(location.href, target));
 }
 
@@ -199,19 +329,17 @@ async function render(path) {
     send(page);
     active.target.path = path;
     updateLinks(active.target);
-    $("viewer").hidden = false;
-    $("empty-state").hidden = true;
-    $("options").open = false;
+    view("preview");
+    if (document.activeElement === $("source")) $("source").blur();
     $("warnings").textContent = [...preview.warnings].join(" ");
     $("warnings").hidden = !preview.warnings.size;
     status("");
+    return true;
   } catch (error) {
     if (session !== active || id !== generation) return;
     disconnect();
     preview.dispose();
-    $("viewer").hidden = true;
-    $("empty-state").hidden = false;
-    $("github-link").hidden = true;
+    view("home");
     status(
       error.name === "AbortError" ? "Loading canceled." : error.message,
       error.name !== "AbortError",
@@ -221,34 +349,26 @@ async function render(path) {
   }
 }
 
-$("preview-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
+async function start(source, ref = $("ref").value) {
   let input;
   try {
-    input = parseGitHubURL($("source").value, $("ref").value);
+    input = parseGitHubURL(source, ref);
   } catch (error) {
     status(error.message, true);
     return;
   }
-  if (!$("trust").checked) {
-    $("options").open = true;
-    status(
-      "Check “I trust this repo's scripts” under Token before previewing.",
-      true,
-    );
-    return;
-  }
+  if (!(await trust(input))) return;
   close();
   const controller = new AbortController();
   const github = new GitHub($("token").value, controller.signal);
   const active = { github, controller };
   session = active;
   busy(true);
-  status("Resolving repository and commit…");
+  status("");
   try {
     active.target = await github.resolve(input);
     if (session !== active) return;
-    await render(active.target.path);
+    if (await render(active.target.path)) addRecent(active.target);
   } catch (error) {
     if (session !== active) return;
     if (
@@ -256,114 +376,135 @@ $("preview-form").addEventListener("submit", async (event) => {
       (error.status === 401 ||
         error.status === 403 ||
         (error.status === 404 && !active.github.token))
-    ) {
-      $("options").open = true;
-      $("token").focus();
-    }
+    )
+      openSettings(true);
     status(
       error.name === "AbortError" ? "Loading canceled." : error.message,
       error.name !== "AbortError",
     );
     busy(false);
   }
-});
+}
 
+// Events
+
+$("form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  start($("source").value);
+});
+// Pasting a GitHub URL over the whole field previews it right away.
+$("source").addEventListener("paste", () => {
+  const field = $("source");
+  const whole =
+    !field.value ||
+    (field.selectionStart === 0 && field.selectionEnd === field.value.length);
+  if (!whole) return;
+  setTimeout(() => {
+    try {
+      parseGitHubURL(field.value);
+    } catch {
+      return;
+    }
+    field.form.requestSubmit();
+  });
+});
 $("cancel").addEventListener("click", () => {
   close();
   status("Loading canceled.");
 });
+$("reload").addEventListener("click", () => {
+  if (session?.target) start(sourceURL(session.target), session.target.ref);
+});
+$("close").addEventListener("click", goHome);
+$("settings-button").addEventListener("click", () => openSettings());
+$("settings-link").addEventListener("click", () => openSettings(true));
 $("token").addEventListener("input", () => {
   updateTokenLabel();
   saveToken();
 });
 $("remember-token").addEventListener("change", saveToken);
-$("trust").addEventListener("change", () => {
-  if (!$("trust").checked) return;
-  $("options").open = false;
-  status("");
-});
 $("clear-token").addEventListener("click", () => {
+  const open = Boolean(session);
   close();
   $("token").value = "";
   saveToken();
   updateTokenLabel();
-  $("options").open = true;
-  status("Token cleared.");
+  $("token").focus();
+  status(open ? "Token cleared. Preview closed." : "Token cleared.");
 });
-$("reload").addEventListener("click", () => {
-  if (session?.target) {
-    $("source").value = sourceURL(session.target);
-    $("ref").value = session.target.ref;
-  }
-  $("preview-form").requestSubmit();
+$("trust-all").addEventListener("change", () => {
+  store.set(KEYS.trustAll, $("trust-all").checked || null);
 });
-$("close-preview").addEventListener("click", () => close());
-$("expand").addEventListener("click", () => {
-  const expanded = $("viewer").classList.toggle("expanded");
-  $("expand").textContent = expanded ? "Collapse" : "Expand";
+$("forget-trusted").addEventListener("click", () => {
+  store.set(KEYS.trusted, null);
+  updateTrustSummary();
 });
-window.addEventListener("keydown", (event) => {
-  if (event.key !== "Escape") return;
-  $("options").open = false;
-  $("results").open = false;
-  $("viewer").classList.remove("expanded");
-  $("expand").textContent = "Expand";
+$("clear-recent").addEventListener("click", () => {
+  store.set(KEYS.recent, null);
+  renderRecent();
 });
-for (const [id, other] of [
-  ["options", "results"],
-  ["results", "options"],
-]) {
-  $(id).addEventListener("toggle", () => {
-    if ($(id).open) $(other).open = false;
-  });
-}
 for (const button of document.querySelectorAll("[data-copy]"))
   button.addEventListener("click", async () => {
     const field = $(button.dataset.copy);
     try {
       await navigator.clipboard.writeText(field.value);
-      button.textContent = "Copied!";
+      button.textContent = "Copied";
       setTimeout(() => {
-        button.textContent = "Copy ↗";
-      }, 1600);
+        button.textContent = "Copy";
+      }, 1400);
     } catch {
       field.focus();
       field.select();
     }
   });
+// Popovers open in the top layer; anchor the share menu under its button.
+$("share").addEventListener("beforetoggle", (event) => {
+  if (event.newState !== "open") return;
+  const rect = $("share-button").getBoundingClientRect();
+  $("share").style.top = `${rect.bottom + 6}px`;
+  $("share").style.right = `${Math.max(8, innerWidth - rect.right)}px`;
+});
+window.addEventListener("keydown", (event) => {
+  if (document.querySelector("dialog[open]")) return;
+  const typing = event.target.closest?.("input, textarea, [contenteditable]");
+  if (event.key === "/" && !typing) {
+    event.preventDefault();
+    $("source").focus();
+    $("source").select();
+  }
+  if (event.key === "Escape" && document.body.hasAttribute("data-busy")) {
+    close();
+    status("Loading canceled.");
+  }
+});
+
+// Share links
 
 function readLink() {
   const params = new URLSearchParams(location.hash.slice(1));
   if (!params.has("url")) return;
   $("source").value = params.get("url");
-  $("ref").value = params.get("ref") || "";
-  // A shared link never executes repository code until the viewer opts in.
-  status(
-    "Link loaded. Add a private repo token under Token if needed, confirm trust, then preview.",
-  );
+  // Shared links ask before running a repository the user has not trusted.
+  start(params.get("url"), params.get("ref") || "");
 }
-// Do not restore credentials or consent from browser form-state restoration.
-// Do not restore credentials, consent, or a previous URL from browser form state.
-// Browsers refill id-keyed inputs on reload and back-navigation even with autocomplete=off.
+// Do not restore a previous URL from browser form state. Browsers refill
+// id-keyed inputs on reload and back-navigation even with autocomplete=off.
 function clearRestoredForm() {
   if (session || location.hash.startsWith("#url=")) return;
   $("source").value = "";
+  $("ref").value = "";
 }
 restoreToken();
-$("trust").checked = false;
-updateTokenLabel();
-readLink();
+renderRecent();
 clearRestoredForm();
-window.addEventListener("pageshow", () => {
+readLink();
+window.addEventListener("pageshow", (event) => {
   clearRestoredForm();
   restoreToken();
-  updateTokenLabel();
+  if (event.persisted) readLink();
 });
 window.addEventListener("hashchange", () => {
-  if (!location.hash.startsWith("#url=")) return;
-  close();
-  $("trust").checked = false;
-  readLink();
+  if (location.hash.startsWith("#url=")) readLink();
 });
 window.addEventListener("pagehide", () => {
   close();

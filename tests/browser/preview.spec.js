@@ -87,35 +87,32 @@ async function mockGitHub(page, options = {}) {
   return requests;
 }
 
-async function openAccess(page) {
-  await page.locator("#options summary").click();
-  await expect(page.locator("#token")).toBeVisible();
+const INDEX = "https://github.com/alice/private/blob/main/site/index.html";
+const frameOf = (page) => page.frameLocator("#frame-host iframe");
+
+async function setToken(page, token, remember = false) {
+  await page.locator("#settings-button").click();
+  await page.locator("#token").fill(token);
+  if (remember) await page.locator("#remember-token").check();
+  await page.getByRole("button", { name: "Done" }).click();
 }
 
-async function start(page, token = "") {
+async function submit(page, url) {
+  await page.locator("#source").fill(url);
+  await page.locator("#source").press("Enter");
+}
+
+async function run(page) {
+  await expect(page.locator("#trust")).toBeVisible();
+  await page.locator("#trust-run").click();
+}
+
+// Opens the app, optionally sets a token, previews a file and trusts its repo.
+async function start(page, token = "", url = INDEX) {
   await page.goto("/");
-  await page
-    .locator("#source")
-    .fill("https://github.com/alice/private/blob/main/site/index.html");
-  await openAccess(page);
-  if (token) {
-    await page.locator("#token").fill(token);
-    await page.mouse.move(0, 0);
-    await expect(page.locator("#token-summary")).toHaveAttribute(
-      "data-token",
-      "true",
-    );
-    await expect(page.locator("#token-summary")).toHaveCSS(
-      "background-color",
-      "rgb(26, 127, 55)",
-    );
-    await expect(page.locator("#token-summary")).toHaveCSS(
-      "color",
-      "rgb(255, 255, 255)",
-    );
-  }
-  await page.locator("#trust").check();
-  await page.locator("#preview-button").click();
+  if (token) await setToken(page, token);
+  await submit(page, url);
+  await run(page);
 }
 
 test("private preview rewrites CSS, images, ES modules, dynamic imports and fetch in an opaque sandbox", async ({
@@ -127,43 +124,25 @@ test("private preview rewrites CSS, images, ES modules, dynamic imports and fetc
   });
   const requests = await mockGitHub(page);
   await start(page, "github_pat_TEST_NOT_A_REAL_TOKEN");
-  const frame = page.frameLocator("#frame-host iframe");
+  const frame = frameOf(page);
   await expect(frame.locator("h1")).toHaveText("Private demo");
   await expect(frame.locator("h1")).toHaveCSS("color", "rgb(100, 20, 200)");
-  await expect(frame.locator("body")).toHaveAttribute("data-classic", "yes");
-  await expect(frame.locator("body")).toHaveAttribute(
-    "data-module",
-    "modules work",
-  );
-  await expect(frame.locator("body")).toHaveAttribute(
-    "data-dynamic",
-    "dynamic works",
-  );
-  await expect(frame.locator("body")).toHaveAttribute("data-cycle", "ab");
-  await expect(frame.locator("body")).toHaveAttribute(
-    "data-worker",
-    "worker works",
-  );
-  await expect(frame.locator("body")).toHaveAttribute(
-    "data-fetch",
-    "fetch works",
-  );
-  await expect(frame.locator("body")).toHaveAttribute("data-isolated", "yes");
-  await expect(frame.locator("body")).toHaveAttribute(
-    "data-storage",
-    "blocked",
-  );
-  expect(
-    await frame
-      .locator("img")
-      .first()
-      .evaluate((img) => img.complete && img.naturalWidth > 0),
-  ).toBe(true);
-  expect(
-    await frame
-      .locator("#via-module")
-      .evaluate((img) => img.complete && img.naturalWidth > 0),
-  ).toBe(true);
+  const body = frame.locator("body");
+  await expect(body).toHaveAttribute("data-classic", "yes");
+  await expect(body).toHaveAttribute("data-module", "modules work");
+  await expect(body).toHaveAttribute("data-dynamic", "dynamic works");
+  await expect(body).toHaveAttribute("data-cycle", "ab");
+  await expect(body).toHaveAttribute("data-worker", "worker works");
+  await expect(body).toHaveAttribute("data-fetch", "fetch works");
+  await expect(body).toHaveAttribute("data-isolated", "yes");
+  await expect(body).toHaveAttribute("data-storage", "blocked");
+  for (const image of [
+    frame.locator("img").first(),
+    frame.locator("#via-module"),
+  ])
+    expect(
+      await image.evaluate((img) => img.complete && img.naturalWidth > 0),
+    ).toBe(true);
   expect(await page.locator("body").getAttribute("data-pwned")).toBeNull();
   expect(await page.locator("#frame-host iframe").getAttribute("sandbox")).toBe(
     "allow-scripts",
@@ -178,58 +157,125 @@ test("private preview rewrites CSS, images, ES modules, dynamic imports and fetc
   ).toBe(true);
   expect(
     await page.locator("#frame-host iframe").getAttribute("srcdoc"),
-  ).not.toContain("github_pat_TEST_NOT_A_REAL_TOKEN");
+  ).not.toContain("github_pat");
   expect(page.url()).not.toContain("github_pat");
   expect(await page.locator("#dev-url").inputValue()).not.toContain(
     "github_pat",
   );
   expect(await page.locator("#pinned-url").inputValue()).toContain(SHA);
+  // Without "Remember", the token is never written to storage.
   expect(
-    await page.evaluate(() => localStorage.length + sessionStorage.length),
-  ).toBe(0);
+    await page.evaluate(() =>
+      JSON.stringify({ ...localStorage, ...sessionStorage }),
+    ),
+  ).not.toContain("github_pat");
   expect(errors).toEqual([]);
   await frame.getByText("Next", { exact: true }).click();
-  await expect(
-    page.frameLocator("#frame-host iframe").locator("h1"),
-  ).toHaveText("Second page");
+  await expect(frameOf(page).locator("h1")).toHaveText("Second page");
   await expect(page.locator("#filename")).toHaveText("site/next.html");
-  await expect(page.locator("#options")).not.toHaveAttribute("open", "");
-  await page.locator("#options summary").click();
+  await page.locator("#settings-button").click();
   await page.locator("#clear-token").click();
   await expect(page.locator("#token")).toHaveValue("");
-  await expect(page.locator("#token-summary")).toHaveAttribute(
+  await expect(page.locator("#settings-button")).toHaveAttribute(
     "data-token",
     "false",
   );
   await expect(page.locator("#viewer")).toBeHidden();
-  await expect(page.locator("#status")).toHaveText("Token cleared.");
+  await expect(page.locator("#status")).toHaveText(
+    "Token cleared. Preview closed.",
+  );
 });
 
-test("public preview omits Authorization and share links require opt-in", async ({
+test("public preview omits Authorization; shared links ask before running an untrusted repo", async ({
   page,
 }) => {
   const requests = await mockGitHub(page);
   await start(page);
   await expect(page.locator("#viewer")).toBeVisible();
   expect(requests.every((r) => r.auth === undefined)).toBe(true);
-  await expect(page.locator("#token-summary")).toHaveAttribute(
+  await expect(page.locator("#settings-button")).toHaveAttribute(
     "data-token",
     "false",
   );
-  await expect(page.locator("#token-summary")).toHaveCSS(
-    "background-color",
-    "rgb(234, 238, 242)",
-  );
   const share = await page.locator("#dev-url").inputValue();
-  const count = requests.length;
+  await page.evaluate(() => localStorage.removeItem("siteview:trusted"));
   await page.goto(share);
   await page.reload();
-  await expect(page.locator("#source")).toHaveValue(
-    "https://github.com/alice/private/blob/main/site/index.html",
-  );
+  const count = requests.length;
+  await expect(page.locator("#source")).toHaveValue(INDEX);
+  await expect(page.locator("#trust")).toBeVisible();
+  await expect(page.locator("#trust-repo")).toHaveText("alice/private");
+  await page.locator("#trust").getByRole("button", { name: "Cancel" }).click();
   await expect(page.locator("#viewer")).toBeHidden();
   expect(requests.length).toBe(count);
-  await expect(page.locator("#trust")).not.toBeChecked();
+  // A trusted repository opens straight from a shared link.
+  await page.evaluate(() =>
+    localStorage.setItem("siteview:trusted", '["alice/private"]'),
+  );
+  await page.reload();
+  await expect(frameOf(page).locator("h1")).toHaveText("Private demo");
+  await expect(page.locator("#trust")).toBeHidden();
+});
+
+test("trust is asked once per repository, or never once everything is trusted", async ({
+  page,
+}) => {
+  await mockGitHub(page);
+  await start(page);
+  await expect(frameOf(page).locator("h1")).toHaveText("Private demo");
+  await page.locator("#close").click();
+  await submit(page, INDEX);
+  await expect(frameOf(page).locator("h1")).toHaveText("Private demo");
+  await expect(page.locator("#trust")).toBeHidden();
+  await page.locator("#close").click();
+  await submit(page, "https://github.com/bob/other/blob/main/site/index.html");
+  await expect(page.locator("#trust-repo")).toHaveText("bob/other");
+  await page.locator("#trust-everything").check();
+  await page.locator("#trust-run").click();
+  await expect(frameOf(page).locator("h1")).toHaveText("Private demo");
+  await page.locator("#close").click();
+  await submit(
+    page,
+    "https://github.com/carol/third/blob/main/site/index.html",
+  );
+  await expect(frameOf(page).locator("h1")).toHaveText("Private demo");
+  await expect(page.locator("#trust")).toBeHidden();
+  await page.locator("#settings-button").click();
+  await expect(page.locator("#trust-all")).toBeChecked();
+  await page.locator("#trust-all").uncheck();
+  await page.locator("#forget-trusted").click();
+  await page.getByRole("button", { name: "Done" }).click();
+  await page.locator("#close").click();
+  await submit(page, INDEX);
+  await expect(page.locator("#trust")).toBeVisible();
+});
+
+test("recent previews reopen in one click", async ({ page }) => {
+  await mockGitHub(page);
+  await start(page);
+  await expect(frameOf(page).locator("h1")).toHaveText("Private demo");
+  await page.locator("#close").click();
+  await expect(page.locator("#recent-list li")).toHaveCount(1);
+  await page.reload();
+  await page.locator(".recent-open").click();
+  await expect(frameOf(page).locator("h1")).toHaveText("Private demo");
+  await page.locator("#close").click();
+  await page.locator("#clear-recent").click();
+  await expect(page.locator("#recent")).toBeHidden();
+});
+
+test("pasting a GitHub URL starts the preview", async ({ page }) => {
+  await mockGitHub(page);
+  await page.goto("/");
+  await page.locator("#source").focus();
+  // Simulate a paste into the empty field; the browser inserts the text.
+  await page.evaluate((url) => {
+    const input = document.querySelector("#source");
+    input.dispatchEvent(new Event("paste", { bubbles: true }));
+    input.value = url;
+  }, INDEX);
+  await run(page);
+  await expect(frameOf(page).locator("h1")).toHaveText("Private demo");
 });
 
 for (const code of [401, 403, 404, 429, 500])
@@ -240,34 +286,26 @@ for (const code of [401, 403, 404, 429, 500])
     await start(page, "github_pat_TEST_NOT_A_REAL_TOKEN");
     await expect(page.locator("#status")).toHaveAttribute("data-error", "true");
     await expect(page.locator("#status")).not.toContainText("private details");
-    await expect(page.locator("#preview-button")).toBeEnabled();
+    await expect(page.locator("#go")).toBeEnabled();
   });
 
-test("missing token on a private repo opens and focuses Token", async ({
+test("missing token on a private repo opens Settings and focuses the token", async ({
   page,
 }) => {
   await mockGitHub(page, { fail: 404 });
-  await page.goto("/");
-  await page
-    .locator("#source")
-    .fill("https://github.com/alice/private/blob/main/site/index.html");
-  await openAccess(page);
-  await page.locator("#trust").check();
-  await page.locator("#preview-button").click();
-  await expect(page.locator("#options")).toHaveAttribute("open", "");
+  await start(page);
+  await expect(page.locator("#settings")).toBeVisible();
   await expect(page.locator("#token")).toBeFocused();
   await expect(page.locator("#status")).toContainText("If it is private");
 });
 
 test("slash branches resolve to longest matching branch", async ({ page }) => {
   const requests = await mockGitHub(page);
-  await page.goto("/");
-  await page
-    .locator("#source")
-    .fill("https://github.com/alice/private/blob/feature/demo/site/index.html");
-  await openAccess(page);
-  await page.locator("#trust").check();
-  await page.locator("#preview-button").click();
+  await start(
+    page,
+    "",
+    "https://github.com/alice/private/blob/feature/demo/site/index.html",
+  );
   await expect(page.locator("#viewer")).toBeVisible();
   expect(requests.some((r) => r.url.includes("/commits/feature%2Fdemo"))).toBe(
     true,
@@ -283,39 +321,26 @@ test("works under a GitHub Pages project subdirectory", async ({ page }) => {
   });
   await mockGitHub(page);
   await page.goto("/project/");
-  await page
-    .locator("#source")
-    .fill("https://github.com/alice/private/blob/main/site/index.html");
-  await openAccess(page);
-  await page.locator("#trust").check();
-  await page.locator("#preview-button").click();
-  await expect(page.locator("#viewer")).toBeVisible();
+  await submit(page, INDEX);
+  await run(page);
+  await expect(frameOf(page).locator("h1")).toHaveText("Private demo");
   expect(new URL(await page.locator("#dev-url").inputValue()).pathname).toBe(
     "/project/",
   );
-  await expect(
-    page.frameLocator("#frame-host iframe").locator("h1"),
-  ).toHaveText("Private demo");
-  await expect(page.locator("#empty-state")).toBeHidden();
-  const headerBox = await page.locator(".header").boundingBox();
-  expect(headerBox.height).toBeLessThan(60);
-  await expect(page.locator(".header")).toHaveCSS(
-    "background-color",
-    "rgb(255, 255, 255)",
+  await expect(page.locator("#home")).toBeHidden();
+  expect((await page.locator(".bar").boundingBox()).height).toBeLessThan(60);
+  await expect(page.locator("#github-link")).toHaveAttribute(
+    "href",
+    "https://github.com/alice/private/blob/main/site/index.html",
   );
-  await expect(page.locator("#github-link")).toBeVisible();
-  await expect(page.locator("#github-link")).toHaveText(
-    /View source on GitHub/,
-  );
-  await expect(page.locator(".viewer-footer")).toHaveCount(0);
   expect((await page.locator("#source").boundingBox()).width).toBeGreaterThan(
     300,
   );
   expect(
     await page.locator('link[rel="stylesheet"]').getAttribute("href"),
-  ).toBe("./style.css?v=11");
+  ).toBe("./style.css?v=12");
   expect(await page.locator('script[type="module"]').getAttribute("src")).toBe(
-    "./app.js?v=11",
+    "./app.js?v=12",
   );
   const dimensions = await page
     .locator("#frame-host iframe")
@@ -328,21 +353,14 @@ test("works under a GitHub Pages project subdirectory", async ({ page }) => {
         pageHeight: document.documentElement.scrollHeight,
       };
     });
-  expect(dimensions.height).toBeGreaterThan(dimensions.viewport * 0.65);
+  expect(dimensions.height).toBeGreaterThan(dimensions.viewport * 0.85);
   expect(dimensions.bottom).toBeLessThanOrEqual(dimensions.viewport);
   expect(dimensions.pageHeight).toBe(dimensions.viewport);
-  await expect(page.locator(".hero, .explain, .faq, .result-card")).toHaveCount(
-    0,
-  );
-  await page.locator("#results summary").click();
+  await page.locator("#share-button").click();
   await expect(page.locator("#dev-url")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.locator("#dev-url")).toBeHidden();
-  await page.screenshot({
-    path: "test-results/desktop.png",
-    fullPage: true,
-    animations: "disabled",
-  });
+  await page.screenshot({ path: "test-results/desktop.png" });
 });
 
 test("cancel aborts a pending API request and clears the busy state", async ({
@@ -359,7 +377,7 @@ test("cancel aborts a pending API request and clears the busy state", async ({
   await began;
   await page.locator("#cancel").click();
   await expect(page.locator("#status")).toHaveText("Loading canceled.");
-  await expect(page.locator("#preview-button")).toBeEnabled();
+  await expect(page.locator("#go")).toBeEnabled();
   await expect(page.locator("#viewer")).toBeHidden();
 });
 
@@ -382,14 +400,12 @@ test("markdown renders as a page with relative images, links, and escaped HTML",
     if (msg.type() === "error") errors.push(msg.text());
   });
   await mockGitHub(page);
-  await page.goto("/");
-  await page
-    .locator("#source")
-    .fill("https://github.com/alice/private/blob/main/docs/README.md");
-  await openAccess(page);
-  await page.locator("#trust").check();
-  await page.locator("#preview-button").click();
-  const frame = page.frameLocator("#frame-host iframe");
+  await start(
+    page,
+    "",
+    "https://github.com/alice/private/blob/main/docs/README.md",
+  );
+  const frame = frameOf(page);
   await expect(frame.locator("h1")).toHaveText("Project docs");
   await expect(frame.locator("strong")).toHaveText("bold");
   await expect(frame.locator("pre code")).toContainText("const answer = 42;");
@@ -405,9 +421,7 @@ test("markdown renders as a page with relative images, links, and escaped HTML",
     "&lt;script&gt;document.body.dataset.pwned",
   );
   await frame.getByText("the guide").click();
-  await expect(
-    page.frameLocator("#frame-host iframe").locator("h1"),
-  ).toHaveText("Guide");
+  await expect(frameOf(page).locator("h1")).toHaveText("Guide");
   await expect(page.locator("#filename")).toHaveText("docs/guide.md");
   expect(errors).toEqual([]);
 });
@@ -429,26 +443,22 @@ test("external markdown links open in a new tab instead of replacing the app", a
   await page.route("https://example.com/**", (route) =>
     route.fulfill({ contentType: "text/html", body: "external" }),
   );
-  await page.goto("/");
-  await page
-    .locator("#source")
-    .fill("https://github.com/alice/private/blob/main/docs/links.md");
-  await openAccess(page);
-  await page.locator("#trust").check();
-  await page.locator("#preview-button").click();
-  await expect(
-    page.frameLocator("#frame-host iframe").locator("h1"),
-  ).toHaveText("Links");
+  await start(
+    page,
+    "",
+    "https://github.com/alice/private/blob/main/docs/links.md",
+  );
+  await expect(frameOf(page).locator("h1")).toHaveText("Links");
   const popupPromise = page.waitForEvent("popup");
   const before = page.url();
-  await page.frameLocator("#frame-host iframe").getByText("Example").click();
+  await frameOf(page).getByText("Example").click();
   const popup = await popupPromise;
   await popup.waitForLoadState("domcontentloaded");
   expect(popup.url()).toBe("https://example.com/page");
   expect(page.url()).toBe(before);
 });
 
-test("mobile form fits viewport and renders without a build step", async ({
+test("mobile layout fits the viewport and renders without a build step", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 375, height: 812 });
@@ -456,42 +466,34 @@ test("mobile form fits viewport and renders without a build step", async ({
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
     375,
   );
-  expect((await page.locator(".header").boundingBox()).height).toBeLessThan(
-    120,
-  );
-  await expect(page.locator("#empty-state")).toBeVisible();
-  await expect(page.locator("#preview-form")).toBeVisible();
-  await page.screenshot({ path: "test-results/mobile.png", fullPage: true });
+  const form = await page.locator("#form").boundingBox();
+  expect(form.x).toBeGreaterThanOrEqual(0);
+  expect(form.x + form.width).toBeLessThanOrEqual(375);
+  await expect(page.locator("#go")).toBeVisible();
+  await page.screenshot({ path: "test-results/mobile.png" });
   await mockGitHub(page);
   await start(page);
-  await expect(
-    page.frameLocator("#frame-host iframe").locator("h1"),
-  ).toHaveText("Private demo");
+  await expect(frameOf(page).locator("h1")).toHaveText("Private demo");
   const layout = await page.locator("#frame-host iframe").evaluate((frame) => ({
     height: frame.clientHeight,
     viewport: innerHeight,
     scrollWidth: document.documentElement.scrollWidth,
   }));
-  expect(layout.height).toBeGreaterThan(layout.viewport * 0.6);
+  expect(layout.height).toBeGreaterThan(layout.viewport * 0.85);
   expect(layout.scrollWidth).toBe(375);
-  await page.screenshot({
-    path: "test-results/mobile-preview.png",
-    fullPage: true,
-  });
+  await page.screenshot({ path: "test-results/mobile-preview.png" });
 });
 
 test("srcdoc iframes render in their own sandbox and src iframes are removed", async ({
   page,
 }) => {
   await mockGitHub(page);
-  await page.goto("/");
-  await page
-    .locator("#source")
-    .fill("https://github.com/alice/private/blob/main/site/framed.html");
-  await openAccess(page);
-  await page.locator("#trust").check();
-  await page.locator("#preview-button").click();
-  const outer = page.frameLocator("#frame-host iframe");
+  await start(
+    page,
+    "",
+    "https://github.com/alice/private/blob/main/site/framed.html",
+  );
+  const outer = frameOf(page);
   await expect(outer.locator("h1")).toHaveText("Outer");
   await expect(outer.frameLocator("#inline").locator("h2")).toHaveText("Inner");
   await expect(outer.locator("#remote")).toHaveCount(0);
@@ -506,15 +508,13 @@ test("circular CSS imports loaded in parallel fail instead of hanging", async ({
   page,
 }) => {
   await mockGitHub(page);
-  await page.goto("/");
-  await page
-    .locator("#source")
-    .fill("https://github.com/alice/private/blob/main/site/cyclic.html");
-  await openAccess(page);
-  await page.locator("#trust").check();
-  await page.locator("#preview-button").click();
+  await start(
+    page,
+    "",
+    "https://github.com/alice/private/blob/main/site/cyclic.html",
+  );
   await expect(page.locator("#status")).toContainText("Circular CSS import");
-  await expect(page.locator("#preview-button")).toBeEnabled();
+  await expect(page.locator("#go")).toBeEnabled();
 });
 
 test("hovering an internal link loads that page before the click", async ({
@@ -522,7 +522,7 @@ test("hovering an internal link loads that page before the click", async ({
 }) => {
   const requests = await mockGitHub(page);
   await start(page);
-  const frame = page.frameLocator("#frame-host iframe");
+  const frame = frameOf(page);
   await expect(frame.locator("h1")).toHaveText("Private demo");
   const next = () =>
     requests.filter((r) => r.url.includes("/contents/site/next.html")).length;
@@ -538,14 +538,12 @@ test("streamed documents keep lifecycle events, script order, CSP, UTF-8 and lar
   page,
 }) => {
   await mockGitHub(page);
-  await page.goto("/");
-  await page
-    .locator("#source")
-    .fill("https://github.com/alice/private/blob/main/site/life.html");
-  await openAccess(page);
-  await page.locator("#trust").check();
-  await page.locator("#preview-button").click();
-  const frame = page.frameLocator("#frame-host iframe");
+  await start(
+    page,
+    "",
+    "https://github.com/alice/private/blob/main/site/life.html",
+  );
+  const frame = frameOf(page);
   const body = frame.locator("body");
   await expect(body).toHaveAttribute("data-loaded", "yes");
   await expect(body).toHaveAttribute("data-ready", "interactive");
@@ -562,51 +560,47 @@ test("a remembered token survives reloads until cleared or unchecked", async ({
   page,
 }) => {
   const requests = await mockGitHub(page);
+  const token = page.locator("#settings-button");
   await page.goto("/");
-  await openAccess(page);
-  await page.locator("#token").fill("github_pat_REMEMBERED");
+  await setToken(page, "github_pat_REMEMBERED");
   await page.reload();
-  await expect(page.locator("#token-summary")).toHaveAttribute(
-    "data-token",
-    "false",
-  );
-  await openAccess(page);
-  await page.locator("#token").fill("github_pat_REMEMBERED");
-  await page.locator("#remember-token").check();
+  await expect(token).toHaveAttribute("data-token", "false");
+  await setToken(page, "github_pat_REMEMBERED", true);
   await page.reload();
-  await expect(page.locator("#token-summary")).toHaveAttribute(
-    "data-token",
-    "true",
-  );
-  await page
-    .locator("#source")
-    .fill("https://github.com/alice/private/blob/main/site/index.html");
-  await openAccess(page);
-  await expect(page.locator("#token")).toHaveValue("github_pat_REMEMBERED");
-  await expect(page.locator("#remember-token")).toBeChecked();
-  await page.locator("#trust").check();
-  await page.locator("#preview-button").click();
-  await expect(
-    page.frameLocator("#frame-host iframe").locator("h1"),
-  ).toHaveText("Private demo");
+  await expect(token).toHaveAttribute("data-token", "true");
+  await submit(page, INDEX);
+  await run(page);
+  await expect(frameOf(page).locator("h1")).toHaveText("Private demo");
   expect(requests.every((r) => r.auth === "Bearer github_pat_REMEMBERED")).toBe(
     true,
   );
-  await page.locator("#options summary").click();
+  await token.click();
+  await expect(page.locator("#token")).toHaveValue("github_pat_REMEMBERED");
   await page.locator("#remember-token").uncheck();
+  await page.getByRole("button", { name: "Done" }).click();
   await page.reload();
-  await expect(page.locator("#token-summary")).toHaveAttribute(
-    "data-token",
-    "false",
-  );
-  await openAccess(page);
-  await page.locator("#token").fill("github_pat_REMEMBERED");
-  await page.locator("#remember-token").check();
+  await expect(token).toHaveAttribute("data-token", "false");
+  await setToken(page, "github_pat_REMEMBERED", true);
+  await token.click();
   await page.locator("#clear-token").click();
   await page.reload();
-  await expect(page.locator("#token-summary")).toHaveAttribute(
-    "data-token",
-    "false",
-  );
-  expect(await page.evaluate(() => localStorage.length)).toBe(0);
+  await expect(token).toHaveAttribute("data-token", "false");
+  expect(
+    await page.evaluate(() => localStorage.getItem("siteview:token")),
+  ).toBeNull();
+});
+
+test("keyboard: slash focuses the URL field and Escape cancels loading", async ({
+  page,
+}) => {
+  await page.route("https://api.github.com/**", () => {});
+  await page.goto("/");
+  await page.locator("body").click();
+  await page.keyboard.press("/");
+  await expect(page.locator("#source")).toBeFocused();
+  await submit(page, INDEX);
+  await run(page);
+  await expect(page.locator("#cancel")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#status")).toHaveText("Loading canceled.");
 });

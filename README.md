@@ -23,19 +23,21 @@ Alternatively publish the repository root directly using Pages' “Deploy from a
 
 ## Use
 
-- Paste a github.com/owner/repo/blob/ref/path or raw.githubusercontent.com/owner/repo/ref/path URL.
-- For private repositories, open **Token** in the header and enter your own PAT.
-- In the same panel, check the trust box, then click **Preview**.
-- Copy a development link to follow the branch or a commit-pinned link to keep the same revision. Recipients must opt in before any repository code runs. Private links require the recipient's own GitHub access.
+- Paste a github.com/owner/repo/blob/ref/path or raw.githubusercontent.com/owner/repo/ref/path URL. Pasting over the field starts the preview; otherwise press Enter.
+- The first time you preview a repository, confirm that you trust its code. Siteview remembers that repository, or every repository if you choose **Don't ask again**. Manage this in **Settings**.
+- For private repositories, open **Settings** (top right) and enter your own PAT.
+- **Recent** on the home page reopens previous previews in one click.
+- **Share** copies a link that follows the branch or one pinned to the commit. Recipients confirm trust before a repository they have not trusted runs. Private links require the recipient's own GitHub access.
 - Reload resolves the branch again. Internal page navigation stays at the initially selected commit.
+- Press `/` to focus the URL field and `Esc` to cancel loading.
 
-Branch names containing slashes are matched against GitHub branch and tag refs, longest name first. The explicit ref field resolves ambiguity. Direct commit links also work.
+Branch names containing slashes are matched against GitHub branch and tag refs, longest name first. The ref override in Settings resolves ambiguity. Direct commit links also work.
 
 ## Private repository access
 
 Prefer a [fine-grained PAT](https://github.com/settings/personal-access-tokens/new) restricted to the repositories you want to preview, with **Contents: Read-only**. Some organizations require administrator approval. Classic tokens require the broader repo scope and may require SSO authorization.
 
-The PAT is sent in the Authorization header only to https://api.github.com. Fetch uses no-store, omits cookies and referrers, and refuses redirects. By default the token is held only in the password field and the active API client's memory, and reloading or leaving the tab clears it. Check **Remember token on this device** to keep it in this site's localStorage across visits; unchecking it or clicking **Clear** deletes it. Previews cannot read it, but other pages served from the same origin can: on GitHub Pages, every project site under `you.github.io` shares one origin, so only remember a token if you trust all of them. The token is never written to sessionStorage, cookies, URLs, GitHub Pages, a service worker, or server logs. Clearing the token closes the active preview. Browser extensions, developer tools and a compromised app host remain outside this protection.
+The PAT is sent in the Authorization header only to https://api.github.com. Fetch uses no-store, omits cookies and referrers, and refuses redirects. By default the token is held only in the password field and the active API client's memory, and reloading or leaving the tab clears it. Check **Remember on this device** in Settings to keep it in this site's localStorage across visits; unchecking it or clicking **Clear** deletes it. Previews cannot read it, but other pages served from the same origin can: on GitHub Pages, every project site under `you.github.io` shares one origin, so only remember a token if you trust all of them. The token is never written to sessionStorage, cookies, URLs, GitHub Pages, a service worker, or server logs. Clearing the token closes the active preview. Browser extensions, developer tools and a compromised app host remain outside this protection.
 
 Private file bytes, and the data and blob URLs the sandbox creates from them, remain in browser memory until the preview is closed or replaced. The app uses no persistent cache. A token grants access only according to GitHub's permissions, but use the narrowest token possible.
 
