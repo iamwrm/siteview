@@ -1,9 +1,19 @@
-import { chooseRef, mime } from "./core.js?v=10";
+import { chooseRef, mime } from "./core.js?v=11";
 
 const API = "https://api.github.com";
 const MAX_FILE = 8 * 1024 * 1024;
 const MAX_TOTAL = 40 * 1024 * 1024;
 const MAX_FILES = 200;
+// Previews load files concurrently; stay well under GitHub's secondary rate limits.
+// HTML, CSS and JS reveal further files, so they get their own lane and are never
+// stuck behind a page full of images.
+const MAX_CONCURRENT = 8;
+const DISCOVERY = new Set([
+  "text/html",
+  "text/css",
+  "text/javascript",
+  "text/markdown",
+]);
 const encodePath = (path) => path.split("/").map(encodeURIComponent).join("/");
 
 export class GitHub {
@@ -12,6 +22,22 @@ export class GitHub {
     this.signal = signal;
     this.files = new Map();
     this.total = 0;
+    this.lanes = new Map();
+  }
+
+  async limit(name, task) {
+    if (!this.lanes.has(name)) this.lanes.set(name, { active: 0, queue: [] });
+    const lane = this.lanes.get(name);
+    if (lane.active >= MAX_CONCURRENT)
+      await new Promise((resolve) => lane.queue.push(resolve));
+    else lane.active++;
+    try {
+      return await task();
+    } finally {
+      const next = lane.queue.shift();
+      if (next) next();
+      else lane.active--;
+    }
   }
 
   async request(path, raw = false, allow404 = false) {
@@ -71,12 +97,20 @@ export class GitHub {
   async resolve(input) {
     const root = `/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repo)}`;
     let ref = input.refOverride;
+    let speculative;
     if (!ref) {
       const qualified = input.tail.match(/^refs\/(heads|tags)\/(.+)$/);
       const first = (qualified ? qualified[2] : input.tail).split("/")[0];
       if (!qualified && /^[a-f0-9]{7,40}$/i.test(first)) ref = first;
       else {
         const kinds = qualified ? [qualified[1]] : ["heads", "tags"];
+        // Most URLs name a ref without slashes, so look up its commit while the
+        // ref list loads instead of afterwards. Unused if a longer ref matches.
+        if (!qualified)
+          speculative = {
+            ref: first,
+            sha: this.commit(root, first).catch(() => null),
+          };
         const results = await Promise.all(
           kinds.map(async (kind) => {
             const response = await this.request(
@@ -113,21 +147,34 @@ export class GitHub {
       );
     const path = input.tail.slice(ref.length + 1);
     if (!path) throw new Error("Choose a file, not a repository or directory.");
+    const sha =
+      (speculative?.ref === ref && (await speculative.sha)) ||
+      (await this.commit(root, ref));
+    this.target = {
+      owner: input.owner,
+      repo: input.repo,
+      ref,
+      sha,
+      path,
+    };
+    this.root = root;
+    return this.target;
+  }
+
+  async commit(root, ref) {
     const response = await this.request(
       `${root}/commits/${encodeURIComponent(ref)}`,
     );
     const commit = await response.json();
     if (!/^[a-f0-9]{40}$/i.test(commit.sha))
       throw new Error("GitHub returned an invalid commit.");
-    this.target = {
-      owner: input.owner,
-      repo: input.repo,
-      ref,
-      sha: commit.sha,
-      path,
-    };
-    this.root = root;
-    return this.target;
+    return commit.sha;
+  }
+
+  // Speculative loads may use only part of the file limit, so they never stop
+  // a page the user actually opens.
+  canPrefetch() {
+    return this.files.size < MAX_FILES / 2;
   }
 
   file(path) {
@@ -143,7 +190,12 @@ export class GitHub {
         return Promise.reject(
           new Error(`Preview limit reached: ${MAX_FILES} files.`),
         );
-      this.files.set(path, this.readFile(path));
+      this.files.set(
+        path,
+        this.limit(DISCOVERY.has(mime(path)) ? "discovery" : "assets", () =>
+          this.readFile(path),
+        ),
+      );
     }
     return this.files.get(path);
   }

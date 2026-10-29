@@ -7,8 +7,13 @@
     <meta name="description" content="Preview a GitHub file as a web page." />
     <title>Siteview</title>
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="./style.css?v=10" />
-    <script type="module" src="./app.js?v=10"></script>
+    <link rel="stylesheet" href="./style.css?v=11" />
+    <script type="module" src="./app.js?v=11"></script>
+    <link rel="modulepreload" href="./core.js?v=11" />
+    <link rel="modulepreload" href="./github.js?v=11" />
+    <link rel="modulepreload" href="./preview.js?v=11" />
+    <link rel="modulepreload" href="./markdown.js?v=11" />
+    <link rel="modulepreload" href="./vendor/lexer.js?v=11" />
   </head>
   <body>
     <header class="header">
@@ -53,6 +58,10 @@
                 />
                 <button id="clear-token" type="button">Clear</button>
               </div>
+              <label class="consent">
+                <input id="remember-token" type="checkbox" />
+                <span>Remember token on this device</span>
+              </label>
               <p>
                 Use a
                 <a
@@ -62,8 +71,8 @@
                   >fine-grained PAT</a
                 >
                 with <strong>Contents: Read-only</strong> for the selected repo.
-                Kept in tab memory, sent only to api.github.com. Never saved or
-                shared.
+                Sent only to api.github.com. Kept in tab memory unless you
+                choose to remember it in this site's local storage.
               </p>
               <label for="ref">Branch, tag, or commit override</label>
               <input

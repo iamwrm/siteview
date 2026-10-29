@@ -16,6 +16,15 @@ const files = {
   "site/dynamic.js": `export const message='dynamic works';`,
   "site/data.json": '{"message":"fetch works"}',
   "site/next.html": '<h1>Second page</h1><a href="./index.html">Back</a>',
+  "site/cyclic.html": `<link rel="stylesheet" href="./cycle-root.css"><h1>Cyclic</h1>`,
+  "site/cycle-root.css": '@import "./cycle-x.css"; @import "./cycle-y.css";',
+  "site/cycle-x.css": '@import "./cycle-y.css";',
+  "site/cycle-y.css": '@import "./cycle-x.css";',
+  "site/life.html": `<!doctype html><link rel="stylesheet" href="./big.css"><h1>Life</h1><script>window.order = ["inline"]; document.addEventListener("DOMContentLoaded", () => { document.body.dataset.ready = document.readyState; window.order.push("ready"); }); addEventListener("load", () => { document.body.dataset.loaded = "yes"; document.body.dataset.order = window.order.join(","); }); addEventListener("securitypolicyviolation", (e) => { document.body.dataset.csp = e.violatedDirective; });</script><script src="./order.js"></script><script defer src="./deferred.js"></script><script type="module" src="./utf.js"></script>`,
+  "site/order.js": `window.order.push("classic");`,
+  "site/deferred.js": `window.order.push("defer");`,
+  "site/utf.js": `document.body.dataset.utf = "héllo ✓"; new Image().src = "http://127.0.0.1:9/blocked.png";`,
+  "site/big.css": `/* ${"x".repeat(300000)} */ h1 { color: rgb(1, 2, 3); }`,
   "site/framed.html": `<!doctype html><h1>Outer</h1><iframe id="inline" srcdoc="&lt;h2&gt;Inner&lt;/h2&gt;&lt;script&gt;try{parent.document.body.dataset.pwned='yes'}catch{}&lt;/script&gt;"></iframe><iframe id="remote" src="https://example.com/"></iframe>`,
   "docs/README.md": [
     "# Project docs",
@@ -304,9 +313,9 @@ test("works under a GitHub Pages project subdirectory", async ({ page }) => {
   );
   expect(
     await page.locator('link[rel="stylesheet"]').getAttribute("href"),
-  ).toBe("./style.css?v=10");
+  ).toBe("./style.css?v=11");
   expect(await page.locator('script[type="module"]').getAttribute("src")).toBe(
-    "./app.js?v=10",
+    "./app.js?v=11",
   );
   const dimensions = await page
     .locator("#frame-host iframe")
@@ -484,13 +493,120 @@ test("srcdoc iframes render in their own sandbox and src iframes are removed", a
   await page.locator("#preview-button").click();
   const outer = page.frameLocator("#frame-host iframe");
   await expect(outer.locator("h1")).toHaveText("Outer");
-  await expect(outer.frameLocator("#inline").locator("h2")).toHaveText(
-    "Inner",
-  );
+  await expect(outer.frameLocator("#inline").locator("h2")).toHaveText("Inner");
   await expect(outer.locator("#remote")).toHaveCount(0);
   await expect(outer.locator("#inline")).toHaveAttribute(
     "sandbox",
     "allow-scripts",
   );
   expect(await page.locator("body").getAttribute("data-pwned")).toBeNull();
+});
+
+test("circular CSS imports loaded in parallel fail instead of hanging", async ({
+  page,
+}) => {
+  await mockGitHub(page);
+  await page.goto("/");
+  await page
+    .locator("#source")
+    .fill("https://github.com/alice/private/blob/main/site/cyclic.html");
+  await openAccess(page);
+  await page.locator("#trust").check();
+  await page.locator("#preview-button").click();
+  await expect(page.locator("#status")).toContainText("Circular CSS import");
+  await expect(page.locator("#preview-button")).toBeEnabled();
+});
+
+test("hovering an internal link loads that page before the click", async ({
+  page,
+}) => {
+  const requests = await mockGitHub(page);
+  await start(page);
+  const frame = page.frameLocator("#frame-host iframe");
+  await expect(frame.locator("h1")).toHaveText("Private demo");
+  const next = () =>
+    requests.filter((r) => r.url.includes("/contents/site/next.html")).length;
+  expect(next()).toBe(0);
+  await frame.getByText("Next", { exact: true }).hover();
+  await expect.poll(next).toBe(1);
+  await frame.getByText("Next", { exact: true }).click();
+  await expect(frame.locator("h1")).toHaveText("Second page");
+  expect(next()).toBe(1);
+});
+
+test("streamed documents keep lifecycle events, script order, CSP, UTF-8 and large files", async ({
+  page,
+}) => {
+  await mockGitHub(page);
+  await page.goto("/");
+  await page
+    .locator("#source")
+    .fill("https://github.com/alice/private/blob/main/site/life.html");
+  await openAccess(page);
+  await page.locator("#trust").check();
+  await page.locator("#preview-button").click();
+  const frame = page.frameLocator("#frame-host iframe");
+  const body = frame.locator("body");
+  await expect(body).toHaveAttribute("data-loaded", "yes");
+  await expect(body).toHaveAttribute("data-ready", "interactive");
+  await expect(body).toHaveAttribute(
+    "data-order",
+    "inline,classic,defer,ready",
+  );
+  await expect(body).toHaveAttribute("data-utf", "héllo ✓");
+  await expect(body).toHaveAttribute("data-csp", /img-src/);
+  await expect(frame.locator("h1")).toHaveCSS("color", "rgb(1, 2, 3)");
+});
+
+test("a remembered token survives reloads until cleared or unchecked", async ({
+  page,
+}) => {
+  const requests = await mockGitHub(page);
+  await page.goto("/");
+  await openAccess(page);
+  await page.locator("#token").fill("github_pat_REMEMBERED");
+  await page.reload();
+  await expect(page.locator("#token-summary")).toHaveAttribute(
+    "data-token",
+    "false",
+  );
+  await openAccess(page);
+  await page.locator("#token").fill("github_pat_REMEMBERED");
+  await page.locator("#remember-token").check();
+  await page.reload();
+  await expect(page.locator("#token-summary")).toHaveAttribute(
+    "data-token",
+    "true",
+  );
+  await page
+    .locator("#source")
+    .fill("https://github.com/alice/private/blob/main/site/index.html");
+  await openAccess(page);
+  await expect(page.locator("#token")).toHaveValue("github_pat_REMEMBERED");
+  await expect(page.locator("#remember-token")).toBeChecked();
+  await page.locator("#trust").check();
+  await page.locator("#preview-button").click();
+  await expect(
+    page.frameLocator("#frame-host iframe").locator("h1"),
+  ).toHaveText("Private demo");
+  expect(requests.every((r) => r.auth === "Bearer github_pat_REMEMBERED")).toBe(
+    true,
+  );
+  await page.locator("#options summary").click();
+  await page.locator("#remember-token").uncheck();
+  await page.reload();
+  await expect(page.locator("#token-summary")).toHaveAttribute(
+    "data-token",
+    "false",
+  );
+  await openAccess(page);
+  await page.locator("#token").fill("github_pat_REMEMBERED");
+  await page.locator("#remember-token").check();
+  await page.locator("#clear-token").click();
+  await page.reload();
+  await expect(page.locator("#token-summary")).toHaveAttribute(
+    "data-token",
+    "false",
+  );
+  expect(await page.evaluate(() => localStorage.length)).toBe(0);
 });

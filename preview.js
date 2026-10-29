@@ -1,16 +1,60 @@
-import { init, parse } from "./vendor/lexer.js?v=10";
-import { virtualURL, localPath, applyEdits } from "./core.js?v=10";
-import { renderMarkdown, MARKDOWN_STYLE } from "./markdown.js?v=10";
+import { init, parse } from "./vendor/lexer.js?v=11";
+import { virtualURL, localPath, applyEdits } from "./core.js?v=11";
+import { renderMarkdown, MARKDOWN_STYLE } from "./markdown.js?v=11";
 
 const text = (file) => new TextDecoder().decode(file.bytes);
 const escapeAttribute = (value) =>
   value.replaceAll("&", "&amp;").replaceAll('"', "&quot;");
+const POLICY =
+  "default-src 'none'; script-src 'unsafe-inline' blob: data: https:; worker-src blob:; style-src 'unsafe-inline' blob: data: https:; img-src blob: data: https:; font-src blob: data: https:; media-src blob: data: https:; connect-src blob: data: https:; base-uri 'none'; form-action 'none'; frame-src 'none'; object-src 'none'";
+const HEAD = `<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${escapeAttribute(POLICY)}"><meta name="referrer" content="no-referrer">`;
 
 // This code runs inside the opaque-origin sandbox. It never receives the PAT.
-function bridge(base) {
+function bridge(base, token) {
   let port;
   let sequence = 0;
+  let written = false;
   const waiting = new Map();
+  const urls = [];
+  const pattern = new RegExp(`${token.replace(/\W/g, "\\$&")}(\\d+)`, "g");
+  const substitute = (value) =>
+    value.replace(pattern, (match, id) => urls[id] ?? match);
+  // The page and its files arrive as raw bytes, and their URLs are made here:
+  // parent-origin blob URLs cannot be loaded by an opaque-origin sandbox, and
+  // large base64 data URLs are slow to build, parse and decode. Small files
+  // use data URLs, which load without a blob-registry round trip per file
+  // (costly in long module import chains); large files use blob URLs.
+  // Files arrive in order, each after everything it references.
+  const resource = ({ type, text, bytes }) => {
+    if (text === undefined)
+      return urls.push(
+        bytes.length < 0x10000 && bytes.toBase64
+          ? `data:${type};base64,${bytes.toBase64()}`
+          : URL.createObjectURL(new Blob([bytes], { type })),
+      );
+    const value = substitute(text);
+    urls.push(
+      value.length < 0x40000
+        ? `data:${type};charset=utf-8,${encodeURIComponent(value)}`
+        : URL.createObjectURL(
+            new Blob([value], { type: `${type};charset=utf-8` }),
+          ),
+    );
+  };
+  const write = ({ html }) => {
+    const markup = substitute(html);
+    const start = () => {
+      // document.open() erases listeners, so link handling is added afterwards.
+      document.open();
+      document.addEventListener("click", click);
+      document.addEventListener("mouseover", intent);
+      document.addEventListener("pointerdown", intent);
+      document.write(markup);
+      document.close();
+    };
+    if (document.readyState === "complete") start();
+    else window.addEventListener("load", start, { once: true });
+  };
   const ready = new Promise((resolve) => {
     const receive = (event) => {
       if (
@@ -22,6 +66,15 @@ function bridge(base) {
       window.removeEventListener("message", receive);
       port = event.ports[0];
       port.onmessage = ({ data }) => {
+        if (data.kind === "resource") {
+          if (!written) resource(data);
+          return;
+        }
+        if (data.kind === "document") {
+          if (!written) write(data);
+          written = true;
+          return;
+        }
         const pending = waiting.get(data.id);
         if (!pending) return;
         waiting.delete(data.id);
@@ -66,7 +119,27 @@ function bridge(base) {
       });
     });
   };
-  document.addEventListener("click", async (event) => {
+  // Ask the host to start loading an internal page the user is about to open:
+  // after a short hover, or at once on press, about a round trip before click.
+  const prefetched = new Set();
+  let hover;
+  function intent(event) {
+    clearTimeout(hover);
+    const link = event.target.closest?.("a[href]");
+    const href = link?.getAttribute("href");
+    if (!href || href.startsWith("#")) return;
+    const url = new URL(href, base);
+    if (url.origin !== new URL(base).origin) return;
+    const path = decodeURIComponent(url.pathname.slice(1));
+    if (prefetched.has(path)) return;
+    const send = () => {
+      prefetched.add(path);
+      port.postMessage({ kind: "prefetch", path });
+    };
+    if (event.type === "mouseover") hover = setTimeout(send, 65);
+    else send();
+  }
+  async function click(event) {
     const link = event.target.closest?.("a[href]");
     if (!link || event.defaultPrevented) return;
     const href = link.getAttribute("href");
@@ -86,40 +159,60 @@ function bridge(base) {
       if (/^https?:\/\//i.test(href) && link.target !== "_self")
         port.postMessage({ kind: "open", url: url.href });
     }
-  });
+  }
 }
 
 export class Preview {
-  constructor(github, onProgress = () => {}) {
+  // send() delivers files and finally the page to the sandbox, in order.
+  constructor(github, send = () => {}) {
     this.github = github;
-    this.onProgress = onProgress;
+    this.send = send;
     this.assets = new Map();
     this.modules = new Map();
+    this.pending = [];
+    this.cssImports = new Map();
     this.warnings = new Set();
     this.disposed = false;
+    this.count = 0;
+    // Placeholder URLs that the sandbox replaces with URLs it creates.
+    this.token = `siteview-resource:${crypto.randomUUID()}:`;
   }
 
   resourceURL(content, type) {
     if (this.disposed) throw new DOMException("Preview closed", "AbortError");
-    const bytes =
-      typeof content === "string" ? new TextEncoder().encode(content) : content;
-    const chunks = [];
-    for (let i = 0; i < bytes.length; i += 0x8000)
-      chunks.push(String.fromCharCode(...bytes.subarray(i, i + 0x8000)));
-    // Parent-origin blob URLs cannot be loaded by an opaque-origin sandbox.
-    return `data:${type};base64,${btoa(chunks.join(""))}`;
+    this.send(
+      typeof content === "string"
+        ? { kind: "resource", type, text: content }
+        : { kind: "resource", type, bytes: content },
+    );
+    return this.token + this.count++;
   }
 
   async file(path) {
-    this.onProgress(path);
     return this.github.file(path);
   }
 
-  async asset(value, from, stack = []) {
+  // Assets load concurrently, so a CSS cycle would otherwise wait on itself.
+  // Record which stylesheets wait on which, and refuse an edge that closes a loop.
+  reaches(from, to, seen = new Set()) {
+    if (from === to) return true;
+    if (seen.has(from)) return false;
+    seen.add(from);
+    for (const next of this.cssImports.get(from) || [])
+      if (this.reaches(next, to, seen)) return true;
+    return false;
+  }
+
+  async asset(value, from, fromCSS = false) {
     const local = localPath(value, from);
     if (!local) return value;
     const { path, hash } = local;
-    if (stack.includes(path)) throw new Error(`Circular CSS import: ${path}`);
+    if (fromCSS) {
+      if (this.reaches(path, from))
+        throw new Error(`Circular CSS import: ${path}`);
+      if (!this.cssImports.has(from)) this.cssImports.set(from, new Set());
+      this.cssImports.get(from).add(path);
+    }
     if (!this.assets.has(path))
       this.assets.set(
         path,
@@ -127,7 +220,7 @@ export class Preview {
           const file = await this.file(path);
           return this.resourceURL(
             file.type === "text/css"
-              ? await this.css(text(file), path, [...stack, path])
+              ? await this.css(text(file), path, true)
               : file.bytes,
             file.type,
           );
@@ -136,38 +229,54 @@ export class Preview {
     return (await this.assets.get(path)) + hash;
   }
 
-  async css(source, from, stack = []) {
-    const edits = [];
+  async css(source, from, fromCSS = false) {
     // Covers CSS url() and quoted @import. Complex generated CSS should be built before previewing.
     const pattern =
       /url\(\s*(?:"([^"\n]*)"|'([^'\n]*)'|([^\s)'"\n]*))\s*\)|@import\s+(?:"([^"\n]+)"|'([^'\n]+)')/gi;
-    for (const match of source.matchAll(pattern)) {
-      const value = match[1] ?? match[2] ?? match[3] ?? match[4] ?? match[5];
-      const replacement = await this.asset(value, from, stack);
-      edits.push({
-        start: match.index,
-        end: match.index + match[0].length,
-        value: match[0].startsWith("@")
-          ? `@import "${replacement}"`
-          : `url("${replacement}")`,
-      });
-    }
+    const edits = await Promise.all(
+      [...source.matchAll(pattern)].map(async (match) => {
+        const value = match[1] ?? match[2] ?? match[3] ?? match[4] ?? match[5];
+        const replacement = await this.asset(value, from, fromCSS);
+        return {
+          start: match.index,
+          end: match.index + match[0].length,
+          value: match[0].startsWith("@")
+            ? `@import "${replacement}"`
+            : `url("${replacement}")`,
+        };
+      }),
+    );
     return applyEdits(source, edits);
   }
 
-  async module(path) {
+  // Starts loading a module without waiting for it. Imports are rewritten to
+  // import-map names, so only finish() needs their resource URLs; settle() waits.
+  module(path) {
     if (this.modules.has(path)) return;
     // Reserve the name first so cyclic ES module graphs can use the import map.
     this.modules.set(path, null);
-    const file = await this.file(path);
-    const source = await this.javascript(text(file), path);
-    this.modules.set(path, this.resourceURL(source, "text/javascript"));
+    const loading = (async () => {
+      const file = await this.file(path);
+      const source = await this.javascript(text(file), path);
+      this.modules.set(path, this.resourceURL(source, "text/javascript"));
+    })();
+    loading.catch(() => {}); // Reported by settle(); avoid unhandled rejections.
+    this.pending.push(loading);
+  }
+
+  async settle() {
+    for (let done = 0; done < this.pending.length;) {
+      const batch = this.pending.slice(done);
+      await Promise.all(batch);
+      done += batch.length;
+    }
   }
 
   async javascript(source, from) {
     await init;
     const [imports] = parse(source);
     const edits = [];
+    const assets = [];
     for (const item of imports) {
       if (item.d === -2) continue; // import.meta
       if (!item.n) {
@@ -177,7 +286,7 @@ export class Preview {
       if (!/^(\.\.?\/|\/)/.test(item.n)) continue; // external URLs and bare import-map names
       const local = localPath(item.n, from);
       if (!local) continue;
-      await this.module(local.path);
+      this.module(local.path);
       const url = virtualURL(local.path);
       edits.push({
         start: item.s,
@@ -189,13 +298,15 @@ export class Preview {
     for (const match of source.matchAll(
       /new\s+URL\(\s*(['"])([^'"\n]+)\1\s*,\s*import\.meta\.url\s*\)/g,
     )) {
-      const url = await this.asset(match[2], from);
-      edits.push({
-        start: match.index,
-        end: match.index + match[0].length,
-        value: `new URL(${JSON.stringify(url)}, ${JSON.stringify(virtualURL(from))})`,
-      });
+      assets.push(
+        this.asset(match[2], from).then((url) => ({
+          start: match.index,
+          end: match.index + match[0].length,
+          value: `new URL(${JSON.stringify(url)}, ${JSON.stringify(virtualURL(from))})`,
+        })),
+      );
     }
+    edits.push(...(await Promise.all(assets)));
     return applyEdits(source, edits);
   }
 
@@ -217,7 +328,7 @@ export class Preview {
           "white-space:pre-wrap;overflow-wrap:anywhere;padding:24px";
         doc.body.append(pre);
       }
-      return this.finish(doc, path);
+      return this.finish(doc);
     }
     const doc = new DOMParser().parseFromString(text(file), "text/html");
     for (const node of doc.querySelectorAll(
@@ -240,19 +351,23 @@ export class Preview {
       'link[rel="preload"], link[rel="modulepreload"], link[rel="prefetch"], link[rel="manifest"]',
     ))
       node.remove();
+    // Every rewrite starts now and runs concurrently; the document is
+    // serialized only after all of them, and all modules, have finished.
+    const tasks = [];
+    const rewrite = (node, attr, load) =>
+      tasks.push(load.then((value) => node.setAttribute(attr, value)));
+    const moduleScripts = [];
     for (const style of doc.querySelectorAll("style"))
-      style.textContent = await this.css(style.textContent, path);
-    for (const node of doc.querySelectorAll("[style]"))
-      node.setAttribute(
-        "style",
-        await this.css(node.getAttribute("style"), path),
+      tasks.push(
+        this.css(style.textContent, path).then((value) => {
+          style.textContent = value;
+        }),
       );
+    for (const node of doc.querySelectorAll("[style]"))
+      rewrite(node, "style", this.css(node.getAttribute("style"), path));
     for (const node of doc.querySelectorAll("link[href]")) {
       if (["stylesheet", "icon", "apple-touch-icon"].includes(node.rel))
-        node.setAttribute(
-          "href",
-          await this.asset(node.getAttribute("href"), path),
-        );
+        rewrite(node, "href", this.asset(node.getAttribute("href"), path));
     }
     for (const node of doc.querySelectorAll("script")) {
       if (node.type === "importmap") {
@@ -274,11 +389,16 @@ export class Preview {
         if (src) {
           const local = localPath(src, path);
           if (local) {
-            await this.module(local.path);
-            node.setAttribute("src", this.modules.get(local.path));
+            this.module(local.path);
+            moduleScripts.push([node, local.path]);
           }
-        } else node.textContent = await this.javascript(node.textContent, path);
-      } else if (src) node.setAttribute("src", await this.asset(src, path));
+        } else
+          tasks.push(
+            this.javascript(node.textContent, path).then((value) => {
+              node.textContent = value;
+            }),
+          );
+      } else if (src) rewrite(node, "src", this.asset(src, path));
     }
     const attributes = [
       ["img", "src"],
@@ -293,10 +413,7 @@ export class Preview {
     ];
     for (const [selector, attr] of attributes) {
       for (const node of doc.querySelectorAll(`${selector}[${attr}]`))
-        node.setAttribute(
-          attr,
-          await this.asset(node.getAttribute(attr), path),
-        );
+        rewrite(node, attr, this.asset(node.getAttribute(attr), path));
     }
     for (const node of doc.querySelectorAll("[srcset]")) {
       const value = node.getAttribute("srcset");
@@ -304,14 +421,21 @@ export class Preview {
         this.warnings.add("Data URLs in srcset are left unchanged.");
         continue;
       }
-      const entries = [];
-      for (const entry of value.split(",")) {
+      const entries = value.split(",").map(async (entry) => {
         const [url, ...descriptor] = entry.trim().split(/\s+/);
-        entries.push([await this.asset(url, path), ...descriptor].join(" "));
-      }
-      node.setAttribute("srcset", entries.join(", "));
+        return [await this.asset(url, path), ...descriptor].join(" ");
+      });
+      rewrite(
+        node,
+        "srcset",
+        Promise.all(entries).then((list) => list.join(", ")),
+      );
     }
-    return this.finish(doc, path);
+    await Promise.all(tasks);
+    await this.settle();
+    for (const [node, local] of moduleScripts)
+      node.setAttribute("src", this.modules.get(local));
+    return this.finish(doc);
   }
 
   async markdown(source, path) {
@@ -325,11 +449,14 @@ export class Preview {
     const style = doc.createElement("style");
     style.textContent = MARKDOWN_STYLE;
     doc.head.append(style);
-    for (const image of doc.querySelectorAll("img[src]"))
-      image.setAttribute(
-        "src",
-        await this.asset(image.getAttribute("src"), path),
-      );
+    await Promise.all(
+      [...doc.querySelectorAll("img[src]")].map(async (image) =>
+        image.setAttribute(
+          "src",
+          await this.asset(image.getAttribute("src"), path),
+        ),
+      ),
+    );
     for (const link of doc.querySelectorAll("a[href]")) {
       const local = localPath(link.getAttribute("href"), path);
       if (local && !link.getAttribute("href").startsWith("#"))
@@ -338,17 +465,28 @@ export class Preview {
           virtualURL(local.path) + local.search + local.hash,
         );
     }
-    return this.finish(doc, path);
+    return this.finish(doc);
   }
 
-  finish(doc, path) {
+  // A small srcdoc that connects the bridge and then writes the page it is sent.
+  shell(path) {
+    const args = [virtualURL(path), this.token]
+      .map((value) => JSON.stringify(value).replaceAll("<", "\\u003c"))
+      .join(", ");
+    return `<!doctype html>\n${HEAD}<script>(${bridge.toString()})(${args})<\/script>`;
+  }
+
+  finish(doc) {
     const imports = {};
     for (const [name, url] of this.modules) imports[virtualURL(name)] = url;
-    const policy =
-      "default-src 'none'; script-src 'unsafe-inline' data: https:; worker-src blob:; style-src 'unsafe-inline' data: https:; img-src blob: data: https:; font-src blob: data: https:; media-src blob: data: https:; connect-src blob: data: https:; base-uri 'none'; form-action 'none'; frame-src 'none'; object-src 'none'";
-    const prefix = `<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${escapeAttribute(policy)}"><meta name="referrer" content="no-referrer"><script>(${bridge.toString()})(${JSON.stringify(virtualURL(path)).replaceAll("<", "\\u003c")})<\/script><script type="importmap">${JSON.stringify({ imports }).replaceAll("<", "\\u003c")}<\/script>`;
-    doc.head.insertAdjacentHTML("afterbegin", prefix);
-    return "<!doctype html>\n" + doc.documentElement.outerHTML;
+    doc.head.insertAdjacentHTML(
+      "afterbegin",
+      `${HEAD}<script type="importmap">${JSON.stringify({ imports }).replaceAll("<", "\\u003c")}<\/script>`,
+    );
+    return {
+      kind: "document",
+      html: "<!doctype html>\n" + doc.documentElement.outerHTML,
+    };
   }
 
   dispose() {

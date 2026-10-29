@@ -1,6 +1,6 @@
-import { parseGitHubURL, sourceURL, shareURL } from "./core.js?v=10";
-import { GitHub } from "./github.js?v=10";
-import { Preview } from "./preview.js?v=10";
+import { parseGitHubURL, sourceURL, shareURL } from "./core.js?v=11";
+import { GitHub } from "./github.js?v=11";
+import { Preview } from "./preview.js?v=11";
 
 const $ = (id) => document.getElementById(id);
 let session;
@@ -13,6 +13,25 @@ function status(message, error = false) {
   $("status").hidden = !message;
   $("status").textContent = message;
   $("status").dataset.error = String(error);
+}
+
+// Opt-in only: the token is stored in this origin's localStorage when the user
+// asks. Previews run in an opaque-origin sandbox and cannot read it.
+const TOKEN_KEY = "siteview:token";
+function saveToken() {
+  try {
+    if ($("remember-token").checked && $("token").value)
+      localStorage.setItem(TOKEN_KEY, $("token").value);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch {}
+}
+function restoreToken() {
+  let saved = null;
+  try {
+    saved = localStorage.getItem(TOKEN_KEY);
+  } catch {}
+  $("token").value = saved || "";
+  $("remember-token").checked = Boolean(saved);
 }
 
 function updateTokenLabel() {
@@ -76,14 +95,13 @@ async function render(path) {
   busy(true);
   disconnect();
   active.preview?.dispose();
-  const preview = new Preview(active.github);
+  // The sandbox starts loading now and receives each file as soon as it is
+  // ready, so its setup overlaps the build instead of following it.
+  const outbox = [];
+  let send = (message) => outbox.push(message);
+  const preview = new Preview(active.github, (message) => send(message));
   active.preview = preview;
   try {
-    const html = await preview.build(path);
-    if (session !== active || id !== generation) {
-      preview.dispose();
-      return;
-    }
     const frame = document.createElement("iframe");
     // Do not add allow-same-origin. Repository scripts must not inherit the app's origin.
     frame.setAttribute("sandbox", "allow-scripts");
@@ -120,11 +138,20 @@ async function render(path) {
           return;
         }
         if (typeof data.path !== "string" || data.path.length > 4096) return;
+        const next = data.path.endsWith("/")
+          ? data.path + "index.html"
+          : data.path;
+        if (data.kind === "prefetch") {
+          active.prefetched ??= new Set();
+          if (active.prefetched.has(next) || !active.github.canPrefetch())
+            return;
+          active.prefetched.add(next);
+          // Warm the file cache for a likely navigation; the result is discarded.
+          new Preview(active.github).build(next).catch(() => {});
+          return;
+        }
         if (data.kind === "navigate") {
           if (pending) return;
-          const next = data.path.endsWith("/")
-            ? data.path + "index.html"
-            : data.path;
           await render(next);
           return;
         }
@@ -157,11 +184,19 @@ async function render(path) {
         }
       };
       frame.contentWindow.postMessage("siteview:connect", "*", [channel.port2]);
+      send = (message) => channel.port1.postMessage(message);
+      for (const message of outbox.splice(0)) send(message);
     };
     window.addEventListener("message", handshake);
     currentFrame = frame;
-    frame.srcdoc = html;
+    frame.srcdoc = preview.shell(path);
     $("frame-host").replaceChildren(frame);
+    const page = await preview.build(path);
+    if (session !== active || id !== generation) {
+      preview.dispose();
+      return;
+    }
+    send(page);
     active.target.path = path;
     updateLinks(active.target);
     $("viewer").hidden = false;
@@ -172,6 +207,7 @@ async function render(path) {
     status("");
   } catch (error) {
     if (session !== active || id !== generation) return;
+    disconnect();
     preview.dispose();
     $("viewer").hidden = true;
     $("empty-state").hidden = false;
@@ -236,7 +272,11 @@ $("cancel").addEventListener("click", () => {
   close();
   status("Loading canceled.");
 });
-$("token").addEventListener("input", updateTokenLabel);
+$("token").addEventListener("input", () => {
+  updateTokenLabel();
+  saveToken();
+});
+$("remember-token").addEventListener("change", saveToken);
 $("trust").addEventListener("change", () => {
   if (!$("trust").checked) return;
   $("options").open = false;
@@ -245,6 +285,7 @@ $("trust").addEventListener("change", () => {
 $("clear-token").addEventListener("click", () => {
   close();
   $("token").value = "";
+  saveToken();
   updateTokenLabel();
   $("options").open = true;
   status("Token cleared.");
@@ -308,12 +349,16 @@ function clearRestoredForm() {
   if (session || location.hash.startsWith("#url=")) return;
   $("source").value = "";
 }
-$("token").value = "";
+restoreToken();
 $("trust").checked = false;
 updateTokenLabel();
 readLink();
 clearRestoredForm();
-window.addEventListener("pageshow", clearRestoredForm);
+window.addEventListener("pageshow", () => {
+  clearRestoredForm();
+  restoreToken();
+  updateTokenLabel();
+});
 window.addEventListener("hashchange", () => {
   if (!location.hash.startsWith("#url=")) return;
   close();

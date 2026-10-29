@@ -126,7 +126,13 @@ export function mime(path) {
 }
 
 export function applyEdits(source, edits) {
-  for (const { start, end, value } of edits.sort((a, b) => b.start - a.start))
-    source = source.slice(0, start) + value + source.slice(end);
-  return source;
+  // One pass over non-overlapping edits; repeated slicing is quadratic on large files.
+  const parts = [];
+  let last = 0;
+  for (const { start, end, value } of edits.sort((a, b) => a.start - b.start)) {
+    parts.push(source.slice(last, start), value);
+    last = end;
+  }
+  parts.push(source.slice(last));
+  return parts.join("");
 }
